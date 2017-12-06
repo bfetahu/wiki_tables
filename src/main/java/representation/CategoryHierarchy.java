@@ -20,12 +20,11 @@ public class CategoryHierarchy implements Serializable {
     public int level;
     public int node_id;
 
-    public Map<String, CategoryHierarchy> parents = new HashMap<>();
+    public transient Map<String, CategoryHierarchy> parents = new HashMap<>();
     public Map<String, CategoryHierarchy> children = new HashMap<>();
 
     //keep the paths from all parent-child-nodes
     public TIntHashSet paths;
-
 
     //generate first the attribute representation for each category and store it
     public Map<String, Map<String, Integer>> cat_representation;
@@ -33,14 +32,68 @@ public class CategoryHierarchy implements Serializable {
     //store the number of entities belonging to this category
     public int num_entities = 0;
 
+    //store also the set of entities for each category
+    public Set<String> entities;
+
     public CategoryHierarchy(String label, int level) {
         this.label = label;
         this.level = level;
 
         paths = new TIntHashSet();
         cat_representation = new HashMap<>();
+        entities = new HashSet<>();
     }
 
+    /**
+     * Load all the children categories into a map data structure.
+     * @param cats
+     */
+    public void loadIntoMapChildCats(Map<String, CategoryHierarchy> cats) {
+        cats.put(this.label, this);
+        children.values().stream().forEach(child -> child.loadIntoMapChildCats(cats));
+    }
+
+    /**
+     * In the category hierarchy, assigns based on the trasnitive property all the entities that belong to a category
+     * and all its super classes.
+     */
+    public void gatherEntities() {
+        if (children != null && !children.isEmpty()) {
+            for (String child_label : children.keySet()) {
+                children.get(child_label).gatherEntities();
+            }
+        }
+
+        if (children.isEmpty() || children == null) {
+            num_entities = entities.size();
+        }
+
+        children.values().stream().forEach(cat -> entities.addAll(cat.entities));
+        num_entities = entities.size();
+    }
+
+    /**
+     * Find a category which is part of the children categories in the category hierarchy.
+     *
+     * @param label
+     * @return
+     */
+    public CategoryHierarchy findCategory(String label) {
+        if (this.label.equals(label)) {
+            return this;
+        }
+
+        if (children != null && !children.isEmpty()) {
+            for (String child_label : children.keySet()) {
+                CategoryHierarchy result = children.get(child_label).findCategory(label);
+
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        return null;
+    }
 
     /**
      * Return the set of categories that belong to a certain level in the Wikipedia category taxonomy.
@@ -269,6 +322,12 @@ public class CategoryHierarchy implements Serializable {
 
 
     public static void main(String[] args) throws IOException, CompressorException {
+//        String base_dir = "/Users/besnik/Desktop/dbpedia/";
+//        String[] args1 = {"-option", "representation", "-categories", base_dir + "skos_categories_en.nt.gz",
+//                "-entity_attributes", base_dir + "entity_attributes/mappingbased_objects_en_sub.ttl", "-entity_categories", base_dir + "article_categories_sub.ttl",
+//                "-out_dir", base_dir + "out", "-debug", "false"};
+//        args = args1;
+
         String category_path = "", entity_attributes_path = "", option = "", entity_categories_path = "", out_dir = "";
         boolean debug = false;
         for (int i = 0; i < args.length; i++) {
@@ -304,6 +363,20 @@ public class CategoryHierarchy implements Serializable {
             System.out.println("Read category to article mappings...");
             Map<String, Set<String>> entity_categories = readCategoryMappings(entity_categories_path);
 
+            //set num entities for each category.
+            Map<String, CategoryHierarchy> cats = new HashMap<>();
+            cat.loadIntoMapChildCats(cats);
+
+            entity_categories.keySet().forEach(category -> {
+                CategoryHierarchy cat_node = cats.get(category);
+                if (cat_node == null) {
+                    return;
+                }
+                cat_node.entities.addAll(entity_categories.get(category));
+            });
+
+            cat.gatherEntities();
+
             //load the attributes for each entity
             Set<String> attribute_files = new HashSet<>();
             FileUtils.getFilesList(entity_attributes_path, attribute_files);
@@ -311,14 +384,12 @@ public class CategoryHierarchy implements Serializable {
 
             //for each category, based on a bottom up approach, generate the attribute representation
             cat.getCategoryAttributeRepresentation(entity_categories, entity_attributes);
-
+            cat.aggregateCategoryRepresentation();
             //save the generated category representation
-//            FileUtils.saveObject(cat, out_dir + "/category_hierarchy_representation.obj");
+            FileUtils.saveObject(cat, out_dir + "/category_hierarchy_representation.obj");
 
             //save also the textual representation for debugging
-            if (debug) {
-                cat.saveCategoryRepresentation(out_dir + "/category_hierarchy_representation.txt");
-            }
+            cat.saveCategoryRepresentation(out_dir + "/category_hierarchy_representation.txt");
         }
     }
 
@@ -351,27 +422,26 @@ public class CategoryHierarchy implements Serializable {
             String line;
 
             while ((line = reader.readLine()) != null) {
-                int next_pos = line.indexOf(" ");
-                int start_pos = 0;
-                String entity = line.substring(start_pos, line.indexOf(" ")).intern();
-                entity = entity.replace("<http://dbpedia.org/resource/", "").replace(">", "");
-
-                start_pos = next_pos;
-                next_pos = line.indexOf(" ", start_pos);
-                String predicate = line.substring(start_pos, next_pos).trim();
-
-                start_pos = next_pos;
-                next_pos = line.lastIndexOf(" ", start_pos);
-                String value = line.substring(start_pos, next_pos).trim();
-
-                if (!entity_attributes.containsKey(entity)) {
-                    entity_attributes.put(entity, new HashMap<>());
+                String[] data = line.split("> ");
+                if (data.length < 3) {
+                    continue;
                 }
 
-                if (!entity_attributes.get(entity).containsKey(predicate)) {
-                    entity_attributes.get(entity).put(predicate, new HashSet<>());
+                String entity = data[0].replace("<http://dbpedia.org/resource/", "").intern();
+                String predicate = data[1].replace("<", "").intern();
+                String value = data[2];
+                if (value.endsWith(" .")) {
+                    value = value.substring(0, value.lastIndexOf(" ")).trim();
                 }
-                entity_attributes.get(entity).get(predicate).add(value);
+
+                if (!entity_attributes.containsKey(predicate)) {
+                    entity_attributes.put(predicate, new HashMap<>());
+                }
+
+                if (!entity_attributes.get(predicate).containsKey(entity)) {
+                    entity_attributes.get(predicate).put(entity, new HashSet<>());
+                }
+                entity_attributes.get(predicate).get(entity).add(value);
             }
         }
 
@@ -433,19 +503,19 @@ public class CategoryHierarchy implements Serializable {
         if (entities == null) {
             return;
         }
+        entities.forEach(entity -> {
+            for (String attribute : entity_attributes.keySet()) {
+                if (!entity_attributes.get(attribute).containsKey(entity)) {
+                    continue;
+                }
 
-        //set the number of entities associated with this category.
-        num_entities = entities.size();
+                Map<String, Set<String>> attribute_values = entity_attributes.get(attribute);
 
-        entities.stream().filter(entity_attributes::containsKey).forEach(entity -> {
-            Map<String, Set<String>> attribute_values = entity_attributes.get(entity);
-
-            for (String attribute : attribute_values.keySet()) {
                 if (!cat_representation.containsKey(attribute)) {
                     cat_representation.put(attribute, new HashMap<>());
                 }
 
-                for (String value : attribute_values.get(attribute)) {
+                for (String value : attribute_values.get(entity)) {
                     int count = cat_representation.get(attribute).containsKey(value) ? cat_representation.get(attribute).get(value) : 0;
                     count++;
                     cat_representation.get(attribute).put(value, count);
@@ -455,17 +525,63 @@ public class CategoryHierarchy implements Serializable {
     }
 
     /**
+     * Aggregate the representation across the category hierarchy.
+     */
+    public void aggregateCategoryRepresentation() {
+        if (children != null && !children.isEmpty()) {
+            for (String child_label : children.keySet()) {
+                CategoryHierarchy child = children.get(child_label);
+
+                if (child.children == null || child.children.isEmpty()) {
+                    mergeCategoryRepresentation(this, child);
+                    continue;
+                } else {
+                    child.aggregateCategoryRepresentation();
+                }
+                mergeCategoryRepresentation(this, child);
+            }
+        }
+    }
+
+    /**
+     * Merge two category representations.
+     *
+     * @param cat_parent
+     * @param cat_child
+     */
+    private void mergeCategoryRepresentation(CategoryHierarchy cat_parent, CategoryHierarchy cat_child) {
+        if (cat_parent.cat_representation.isEmpty()) {
+            cat_parent.cat_representation.putAll(cat_child.cat_representation);
+        } else {
+            Map<String, Map<String, Integer>> child_cat_representation = cat_child.cat_representation;
+            for (String key : child_cat_representation.keySet()) {
+                if (!cat_representation.containsKey(key)) {
+                    cat_representation.put(key, new HashMap<>());
+                }
+
+                for (String sub_key : child_cat_representation.get(key).keySet()) {
+                    if (!cat_representation.get(key).containsKey(sub_key)) {
+                        cat_representation.get(key).put(sub_key, 0);
+                    }
+                    cat_representation.get(key).put(sub_key, cat_representation.get(key).get(sub_key) + child_cat_representation.get(key).get(sub_key));
+                }
+            }
+        }
+    }
+
+    /**
      * Print the category representation.
      *
      * @return
      */
     public String printCategoryAttributeRepresentation() {
         int total_attributes = cat_representation.size();
-
+        if (total_attributes == 0) {
+            return "";
+        }
         //output the category representation
         StringBuffer sb = new StringBuffer();
-        sb.append(level).append("\t").append(parents.keySet()).append("\t").append(label).
-                append("\t").append(num_entities).append("\t").append(total_attributes);
+        sb.append(label).append("\t").append(num_entities).append("\t").append(total_attributes);
         for (String attribute : cat_representation.keySet()) {
             int num_values = cat_representation.get(attribute).size();
             int num_assignments = cat_representation.get(attribute).values().stream().mapToInt(x -> x).sum();
