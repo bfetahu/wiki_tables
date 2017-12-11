@@ -131,15 +131,16 @@ public class CategoryRepresentation implements Serializable {
         BufferedReader reader = FileUtils.getFileReader(category_file);
         String line;
 
-        Map<String, CategoryRepresentation> all_cats = loadAllCategories(category_file);
+        Map<String, CategoryRepresentation> all_cats = loadAllCategoriesWiki(category_file);
         while ((line = reader.readLine()) != null) {
-            String[] data = line.split("\\s+");
-            if (!data[1].contains("<http://www.w3.org/2004/02/skos/core#broader>") || data[2].equals(data[0])) {
+            line = line.trim();
+            String[] data = line.split("\t");
+            if (line.trim().isEmpty() || data.length != 2) {
                 continue;
             }
 
-            String parent_label = data[2].replace("<http://dbpedia.org/resource/Category:", "").replace(">", "");
-            String child_label = data[0].replace("<http://dbpedia.org/resource/Category:", "").replace(">", "");
+            String parent_label = data[0].trim();
+            String child_label = data[1].trim();
 
             CategoryRepresentation parent = all_cats.get(parent_label);
             CategoryRepresentation child = all_cats.get(child_label);
@@ -188,33 +189,21 @@ public class CategoryRepresentation implements Serializable {
      * @return
      * @throws IOException
      */
-    public static Map<String, CategoryRepresentation> loadAllCategories(String file) throws IOException {
+    public static Map<String, CategoryRepresentation> loadAllCategoriesWiki(String file) throws IOException {
         BufferedReader reader = FileUtils.getFileReader(file);
         String line;
 
         int node_id = 0;
         Map<String, CategoryRepresentation> all_cats = new HashMap<>();
         while ((line = reader.readLine()) != null) {
-            String[] data = line.split("\\s+");
-            if (data[1].contains("<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>")) {
-                //the category doesn't, exist, add it into the root
-                String cat_label = data[0].replace("<http://dbpedia.org/resource/Category:", "").replace(">", "");
-                CategoryRepresentation cat = all_cats.get(cat_label);
-                if (cat == null) {
-                    cat = new CategoryRepresentation(cat_label, 0);
-                    cat.node_id = node_id;
-                    all_cats.put(cat.label, cat);
-                    node_id++;
-                }
+            line = line.trim();
+            String[] data = line.trim().split("\t");
+            if (line.isEmpty() || data.length != 2) {
                 continue;
             }
 
-            if (!data[1].contains("skos/core#broader>") || data[2].equals(data[0])) {
-                continue;
-            }
-
-            String parent_label = data[2].replace("<http://dbpedia.org/resource/Category:", "").replace(">", "");
-            String child_label = data[0].replace("<http://dbpedia.org/resource/Category:", "").replace(">", "");
+            String parent_label = data[0].trim().intern();
+            String child_label = data[1].trim().intern();
 
             if (!all_cats.containsKey(parent_label)) {
                 CategoryRepresentation cat = new CategoryRepresentation(parent_label, 0);
@@ -324,6 +313,8 @@ public class CategoryRepresentation implements Serializable {
 
 
     public static void main(String[] args) throws IOException, CompressorException {
+//        String[] args1 = {"-categories", "/Users/besnik/Desktop/wiki_tables/wiki_cats_2017.tsv.gz", "-out_dir", "/Users/besnik/Desktop/wiki_tables/"};
+//        args = args1;
         String category_path = "", entity_attributes_path = "", option = "", entity_categories_path = "", out_dir = "";
         Set<String> seed_entities = new HashSet<>();
 
@@ -347,7 +338,7 @@ public class CategoryRepresentation implements Serializable {
         CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
 
         if (option.equals("representation")) {
-            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappings(entity_categories_path);
+            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path);
             System.out.println("Finished reading category to article mappings...");
             //in case we want to limit the category representation only to those entities which have a table.
             if (!seed_entities.isEmpty()) {
@@ -371,7 +362,7 @@ public class CategoryRepresentation implements Serializable {
             //save also the textual representation for debugging
             cat.saveCategoryRepresentation(out_dir + "/category_hierarchy_representation.txt");
         } else if (option.equals("cat_utils")) {
-            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappings(entity_categories_path);
+            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path);
             System.out.println("Finished reading category to article mappings...");
             DataUtils.updateCatsWithEntities(cat, entity_categories);
 
@@ -423,7 +414,6 @@ public class CategoryRepresentation implements Serializable {
                 children.get(child_label).getCategoryAttributeRepresentation(entity_categories, entity_attributes);
             }
         }
-
         //get the entities of the following category
         Set<String> entities = entity_categories.get(label);
         if (entities == null) {

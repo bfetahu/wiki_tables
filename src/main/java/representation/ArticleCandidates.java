@@ -33,7 +33,7 @@ public class ArticleCandidates {
         Set<String> article_b_cats = article_categories.get(article_b);
 
         //check first if they come from the same categories.
-        if (article_a_cats.equals(article_b_cats)) {
+        if ((article_a_cats == null || article_b_cats == null) || article_a_cats.equals(article_b_cats)) {
             //return null in this case, indicating that the articles belong to exactly the same categories
             return null;
         }
@@ -119,6 +119,10 @@ public class ArticleCandidates {
     }
 
     public static void main(String[] args) throws IOException {
+        String[] args1 = {"-cat_rep", "/Users/besnik/Desktop/wiki_tables/category_hierarchy_representation.obj",
+                "-article_categories", "/Users/besnik/Desktop/wiki_tables/article_categories_en.ttl.bz2",
+                "-seed_entities", "/Users/besnik/Desktop/wiki_tables/seed_entities.txt", "-out_dir", "/Users/besnik/Desktop/wiki_tables/candidates/"};
+        args = args1;
         String cat_rep = "", out_dir = "", article_cats = "";
         Set<String> seed_entities = new HashSet<>();
 
@@ -130,14 +134,18 @@ public class ArticleCandidates {
             } else if (args[i].equals("-article_categories")) {
                 article_cats = args[++i];
             } else if (args[i].equals("-seed_entities")) {
-                seed_entities = DataUtils.loadSeedEntities(args[++i]);
+//                seed_entities = DataUtils.loadSeedEntities(args[++i]);
+                seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
+//                StringBuffer sb = new StringBuffer();
+//                seed_entities.forEach(s -> sb.append(s).append("\n"));
+//                FileUtils.saveText(sb.toString(), "/Users/besnik/Desktop/wiki_tables/seed_entities.txt");
             }
         }
         CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep);
         ArticleCandidates ac = new ArticleCandidates(cat);
 
         //set the entity categories for the articles.
-        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappings(article_cats);
+        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(article_cats);
         entity_categories.keySet().retainAll(seed_entities);
 
         //set num entities for each category.
@@ -153,7 +161,7 @@ public class ArticleCandidates {
         final String out_dir_f = out_dir;
         cat.children.keySet().parallelStream().forEach(child_label -> {
             CategoryRepresentation child = cat.children.get(child_label);
-            if (child.entities.size() == 1) {
+            if (child.entities.size() <= 1) {
                 System.out.printf("Skipping category %s due to the fact that it contains only 1 entity.\n", child.label);
                 return;
             }
@@ -183,6 +191,9 @@ public class ArticleCandidates {
                 String article_candidate_b = entities_arr[j];
 
                 TableCandidateFeatures tbl_candidate = measureArticleCandidateScore(article_candidate_a, article_candidate_b, entity_categories);
+                if (tbl_candidate == null) {
+                    continue;
+                }
                 candidates.add(tbl_candidate);
             }
         }

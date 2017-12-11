@@ -21,16 +21,21 @@ public class DataUtils {
      * @return
      * @throws IOException
      */
-    public static Map<String, Set<String>> readCategoryMappings(String file) throws IOException {
+    public static Map<String, Set<String>> readCategoryMappingsWiki(String file) throws IOException {
         Map<String, Set<String>> entity_cats = new HashMap<>();
         BufferedReader reader = FileUtils.getFileReader(file);
 
         String line;
         while ((line = reader.readLine()) != null) {
-            line = line.replace("<http://dbpedia.org/resource/", "").replace(">", "");
-            String[] parts = line.split("\\s+");
-            String article = parts[0].replaceAll("_", " ").trim().intern();
-            String category = parts[2].replace("Category:", "");
+            line = line.trim();
+            String[] parts = line.split("\t");
+
+            if (line.isEmpty() || parts.length != 2) {
+                continue;
+            }
+
+            String article = parts[0].trim().intern();
+            String category = parts[1].trim().intern();
 
             if (!entity_cats.containsKey(category)) {
                 entity_cats.put(category, new HashSet<>());
