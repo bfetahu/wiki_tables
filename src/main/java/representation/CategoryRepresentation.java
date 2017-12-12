@@ -313,8 +313,6 @@ public class CategoryRepresentation implements Serializable {
 
 
     public static void main(String[] args) throws IOException, CompressorException {
-//        String[] args1 = {"-categories", "/Users/besnik/Desktop/wiki_tables/wiki_cats_2017.tsv.gz", "-out_dir", "/Users/besnik/Desktop/wiki_tables/"};
-//        args = args1;
         String category_path = "", entity_attributes_path = "", option = "", entity_categories_path = "", out_dir = "";
         Set<String> seed_entities = new HashSet<>();
 
@@ -330,7 +328,7 @@ public class CategoryRepresentation implements Serializable {
             } else if (args[i].equals("-out_dir")) {
                 out_dir = args[++i];
             } else if (args[i].equals("-seed_entities")) {
-                seed_entities = DataUtils.loadSeedEntities(args[++i]);
+                seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             }
         }
 

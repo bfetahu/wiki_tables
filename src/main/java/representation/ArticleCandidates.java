@@ -119,10 +119,6 @@ public class ArticleCandidates {
     }
 
     public static void main(String[] args) throws IOException {
-        String[] args1 = {"-cat_rep", "/Users/besnik/Desktop/wiki_tables/category_hierarchy_representation.obj",
-                "-article_categories", "/Users/besnik/Desktop/wiki_tables/article_categories_en.ttl.bz2",
-                "-seed_entities", "/Users/besnik/Desktop/wiki_tables/seed_entities.txt", "-out_dir", "/Users/besnik/Desktop/wiki_tables/candidates/"};
-        args = args1;
         String cat_rep = "", out_dir = "", article_cats = "";
         Set<String> seed_entities = new HashSet<>();
 
@@ -134,11 +130,7 @@ public class ArticleCandidates {
             } else if (args[i].equals("-article_categories")) {
                 article_cats = args[++i];
             } else if (args[i].equals("-seed_entities")) {
-//                seed_entities = DataUtils.loadSeedEntities(args[++i]);
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
-//                StringBuffer sb = new StringBuffer();
-//                seed_entities.forEach(s -> sb.append(s).append("\n"));
-//                FileUtils.saveText(sb.toString(), "/Users/besnik/Desktop/wiki_tables/seed_entities.txt");
             }
         }
         CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep);

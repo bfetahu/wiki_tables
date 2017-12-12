@@ -39,7 +39,7 @@ public class CategoryExtractor {
                     entities.add(sb.toString());
                     sb.delete(0, sb.length());
 
-                    if (entities.size() % 1000 == 0) {
+                    if (entities.size() % num_threads == 0) {
                         parseEntityCategories(entities, out_dir, is_categories, num_threads);
                     }
                 }
