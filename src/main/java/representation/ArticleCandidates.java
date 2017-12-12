@@ -47,7 +47,7 @@ public class ArticleCandidates {
 
         TableCandidateFeatures matchings = new TableCandidateFeatures(article_a, article_b);
         matchings.setArticleACategories(article_a_cats, cat_to_map);
-        matchings.setArticleACategories(article_b_cats, cat_to_map);
+        matchings.setArticleBCategories(article_b_cats, cat_to_map);
 
         for (String cat_a_label : article_a_cats) {
             CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);

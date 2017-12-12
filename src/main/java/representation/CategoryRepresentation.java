@@ -367,7 +367,6 @@ public class CategoryRepresentation implements Serializable {
             StringBuffer sb = new StringBuffer();
             String cat_hierarchy_file = out_dir + "/category_hierarchy.csv";
 
-
             if (FileUtils.fileExists(cat_hierarchy_file, false)) {
                 new File(cat_hierarchy_file).delete();
             }
