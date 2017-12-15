@@ -21,61 +21,63 @@ public class DataUtils {
      * @return
      * @throws IOException
      */
-    public static Map<String, Set<String>> readCategoryMappingsWiki(String file) throws IOException {
+    public static Map<String, Set<String>> readCategoryMappingsWiki(String file, Set<String> seed_entities) throws IOException {
         Map<String, Set<String>> entity_cats = new HashMap<>();
         BufferedReader reader = FileUtils.getFileReader(file);
 
         String line;
         while ((line = reader.readLine()) != null) {
-            line = line.trim();
             String[] parts = line.split("\t");
 
-            if (line.isEmpty() || parts.length != 2) {
+            if (line.isEmpty() || parts.length < 2) {
                 continue;
             }
 
             String article = parts[0].trim().intern();
             String category = parts[1].trim().intern();
 
+            //in case we want to limit the category representation only to those entities which have a table.
+            if (seed_entities != null && !seed_entities.isEmpty() && !seed_entities.contains(article)) {
+                continue;
+            }
+
             if (!entity_cats.containsKey(category)) {
                 entity_cats.put(category, new HashSet<>());
             }
             entity_cats.get(category).add(article);
         }
-
-        reader.close();
         return entity_cats;
     }
 
     /**
      * Load the attributes for entities in DBpedia.
      *
-     * @param files
+     * @param entity_attributes_path
+     * @param seed_entities
      * @return
      * @throws IOException
      */
-    public static Map<String, Map<String, Set<String>>> loadEntityAttributes(Set<String> files, Set<String> seed_entities) throws IOException {
+    public static Map<String, Map<String, Set<String>>> loadEntityAttributes(String entity_attributes_path, Set<String> seed_entities) throws IOException {
+        Set<String> attribute_files = new HashSet<>();
+        FileUtils.getFilesList(entity_attributes_path, attribute_files);
         Map<String, Map<String, Set<String>>> entity_attributes = new HashMap<>();
 
-        for (String file : files) {
+        for (String file : attribute_files) {
             BufferedReader reader = FileUtils.getFileReader(file);
             String line;
 
             while ((line = reader.readLine()) != null) {
-                String[] data = line.split("> ");
+                String[] data = line.split("\t");
                 if (data.length < 3) {
                     continue;
                 }
 
-                String entity = data[0].replace("<http://dbpedia.org/resource/", "").replaceAll("_", " ").trim().intern();
-                String predicate = data[1].replace("<", "").intern();
+                String entity = data[0].trim().intern();
+                String predicate = data[1].intern();
                 String value = data[2];
 
                 if (!seed_entities.isEmpty() && !seed_entities.contains(entity)) {
                     continue;
-                }
-                if (value.endsWith(" .")) {
-                    value = value.substring(0, value.lastIndexOf(" ")).trim();
                 }
 
                 if (!entity_attributes.containsKey(predicate)) {

@@ -3,10 +3,8 @@ package datastruct;
 import representation.CategoryRepresentation;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Created by besnik on 12/8/17.
@@ -109,5 +107,40 @@ public class TableCandidateFeatures implements Serializable {
      */
     public int getMaxLevelB() {
         return max_level_b;
+    }
+
+    /**
+     * Compute the overlap between categories that are directly associated with the articles.
+     *
+     * @param cats
+     */
+    public void computeDirectCatRepSimilarity(Map<String, CategoryRepresentation> cats) {
+        Set<CategoryRepresentation> sub_cats_a = cats.values().stream().filter(cat -> article_categories_a.contains(cat.label) && cat.level == max_level_a).collect(Collectors.toSet());
+        Set<CategoryRepresentation> sub_cats_b = cats.values().stream().filter(cat -> article_categories_b.contains(cat.label) && cat.level == max_level_b).collect(Collectors.toSet());
+
+        Map<String, Map<String, Integer>> rep_a = new HashMap<>();
+
+    }
+
+    public Map<String, Map<String, Integer>> updateCategoryRepresentation(Map<String, Map<String, Integer>> rep, Set<CategoryRepresentation> sub_cats) {
+        Map<String, Map<String, Integer>> rep_a = new HashMap<>();
+        sub_cats.forEach(cat -> {
+            rep.keySet().forEach(key -> {
+                if (!rep_a.containsKey(key)) {
+                    rep_a.put(key, rep.get(key));
+                    return;
+                }
+                Map<String, Integer> sub_rep_a = rep_a.get(key);
+                Map<String, Integer> sub_rep = rep.get(key);
+                sub_rep.keySet().forEach(val -> {
+                    if (!sub_rep_a.containsKey(val)) {
+                        sub_rep_a.put(val, sub_rep.get(val));
+                        return;
+                    }
+                    sub_rep_a.put(val, sub_rep.get(val) + sub_rep_a.get(val));
+                });
+            });
+        });
+        return rep_a;
     }
 }

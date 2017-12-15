@@ -336,19 +336,14 @@ public class CategoryRepresentation implements Serializable {
         CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
 
         if (option.equals("representation")) {
-            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path);
-            System.out.println("Finished reading category to article mappings...");
-            //in case we want to limit the category representation only to those entities which have a table.
-            if (!seed_entities.isEmpty()) {
-                entity_categories.keySet().retainAll(seed_entities);
-            }
+            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, seed_entities);
+            System.out.println("Finished reading category to article mappings for " + entity_categories.size() + " entities.");
+
             //set num entities for each category.
             DataUtils.updateCatsWithEntities(cat, entity_categories);
 
             //load the attributes for each entity
-            Set<String> attribute_files = new HashSet<>();
-            FileUtils.getFilesList(entity_attributes_path, attribute_files);
-            Map<String, Map<String, Set<String>>> entity_attributes = DataUtils.loadEntityAttributes(attribute_files, seed_entities);
+            Map<String, Map<String, Set<String>>> entity_attributes = DataUtils.loadEntityAttributes(entity_attributes_path, seed_entities);
             System.out.println("Finished reading entity attributes.");
 
             //for each category, based on a bottom up approach, generate the attribute representation
@@ -360,7 +355,7 @@ public class CategoryRepresentation implements Serializable {
             //save also the textual representation for debugging
             cat.saveCategoryRepresentation(out_dir + "/category_hierarchy_representation.txt");
         } else if (option.equals("cat_utils")) {
-            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path);
+            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, null);
             System.out.println("Finished reading category to article mappings...");
             DataUtils.updateCatsWithEntities(cat, entity_categories);
 
@@ -416,6 +411,7 @@ public class CategoryRepresentation implements Serializable {
         if (entities == null) {
             return;
         }
+
         entities.forEach(entity -> {
             for (String attribute : entity_attributes.keySet()) {
                 if (!entity_attributes.get(attribute).containsKey(entity)) {
@@ -430,8 +426,7 @@ public class CategoryRepresentation implements Serializable {
 
                 for (String value : attribute_values.get(entity)) {
                     int count = cat_representation.get(attribute).containsKey(value) ? cat_representation.get(attribute).get(value) : 0;
-                    count++;
-                    cat_representation.get(attribute).put(value, count);
+                    cat_representation.get(attribute).put(value, count + 1);
                 }
             }
         });

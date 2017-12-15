@@ -137,8 +137,7 @@ public class ArticleCandidates {
         ArticleCandidates ac = new ArticleCandidates(cat);
 
         //set the entity categories for the articles.
-        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(article_cats);
-        entity_categories.keySet().retainAll(seed_entities);
+        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(article_cats, seed_entities);
 
         //set num entities for each category.
         Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, entity_categories);
@@ -172,7 +171,9 @@ public class ArticleCandidates {
      * @param cats
      * @return
      */
-    public List<TableCandidateFeatures> constructCandidateRepresentations(Set<String> entities, Map<String, Set<String>> entity_categories, Map<String, CategoryRepresentation> cats) {
+    public List<TableCandidateFeatures> constructCandidateRepresentations(Set<String> entities,
+                                                                          Map<String, Set<String>> entity_categories,
+                                                                          Map<String, CategoryRepresentation> cats) {
         List<TableCandidateFeatures> candidates = new ArrayList<>();
         String[] entities_arr = new String[entities.size()];
         entities.toArray(entities_arr);
