@@ -39,7 +39,7 @@ public class TableCandidateFeatures implements Serializable {
     public void setArticleACategories(Set<String> article_categories_a, Map<String, CategoryRepresentation> cat_to_map) {
         this.article_categories_a = article_categories_a;
 
-        max_level_a = article_categories_a.stream().mapToInt(cat -> cat_to_map.get(cat).level).max().getAsInt();
+        max_level_a = article_categories_a.stream().mapToInt(cat -> cat_to_map.containsKey(cat) ? cat_to_map.get(cat).level : 0).max().getAsInt();
     }
 
     /**
@@ -53,7 +53,7 @@ public class TableCandidateFeatures implements Serializable {
      */
     public void setArticleBCategories(Set<String> article_categories_b, Map<String, CategoryRepresentation> cat_to_map) {
         this.article_categories_b = article_categories_b;
-        max_level_b = article_categories_b.stream().mapToInt(cat -> cat_to_map.get(cat).level).max().getAsInt();
+        max_level_b = article_categories_b.stream().mapToInt(cat -> cat_to_map.containsKey(cat) ? cat_to_map.get(cat).level : 0).max().getAsInt();
     }
 
     /**

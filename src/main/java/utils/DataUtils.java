@@ -133,7 +133,6 @@ public class DataUtils {
         entity_categories.keySet().forEach(category -> {
             CategoryRepresentation cat_node = cats.get(category);
             if (cat_node == null) {
-                System.out.println(category + " is missing.");
                 return;
             }
             cat_node.entities.addAll(entity_categories.get(category));
