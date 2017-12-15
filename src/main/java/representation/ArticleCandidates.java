@@ -33,7 +33,7 @@ public class ArticleCandidates {
         Set<String> article_b_cats = article_categories.get(article_b);
 
         //check first if they come from the same categories.
-        if ((article_a_cats == null || article_b_cats == null) || article_a_cats.equals(article_b_cats)) {
+        if (article_a_cats == null || article_b_cats == null || article_a_cats.equals(article_b_cats)) {
             //return null in this case, indicating that the articles belong to exactly the same categories
             return null;
         }
@@ -44,29 +44,28 @@ public class ArticleCandidates {
              this allows us to avoid the match between very broad categories, and thus, we generate more
              meaningful similarity matches.
          */
-
-        TableCandidateFeatures matchings = new TableCandidateFeatures(article_a, article_b);
-        matchings.setArticleACategories(article_a_cats, cat_to_map);
-        matchings.setArticleBCategories(article_b_cats, cat_to_map);
+        TableCandidateFeatures matching = new TableCandidateFeatures(article_a, article_b);
+        matching.setArticleACategories(article_a_cats, cat_to_map);
+        matching.setArticleBCategories(article_b_cats, cat_to_map);
 
         for (String cat_a_label : article_a_cats) {
             CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);
-            if (cat_a.level < matchings.getMaxLevelA()) {
+            if (cat_a == null || cat_a.level < matching.getMaxLevelA()) {
                 continue;
             }
 
             for (String cat_b_label : article_b_cats) {
                 CategoryRepresentation cat_b = cat_to_map.get(cat_b_label);
-                if (cat_b.level < matchings.getMaxLevelB()) {
+                if (cat_b == null || cat_b.level < matching.getMaxLevelB()) {
                     continue;
                 }
 
                 //get the lowest common ancestors between the two categories
                 Set<CategoryRepresentation> common_ancestors = findCommonAncestor(cat_a, cat_b);
-                matchings.lowest_common_ancestors.add(common_ancestors);
+                matching.lowest_common_ancestors.add(common_ancestors);
             }
         }
-        return matchings;
+        return matching;
     }
 
     /**
@@ -111,7 +110,13 @@ public class ArticleCandidates {
      * @param parents
      */
     public void gatherParents(CategoryRepresentation cat, Set<String> parents) {
+        if (cat == null || cat.parents == null) {
+            return;
+        }
         cat.parents.keySet().forEach(parent_label -> {
+            if (parents.contains(parent_label)) {
+                return;
+            }
             parents.add(parent_label);
 
             gatherParents(cat.parents.get(parent_label), parents);
@@ -119,12 +124,14 @@ public class ArticleCandidates {
     }
 
     public static void main(String[] args) throws IOException {
-        String cat_rep = "", out_dir = "", article_cats = "";
+        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "";
         Set<String> seed_entities = new HashSet<>();
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-cat_rep")) {
-                cat_rep = args[++i];
+                cat_rep_path = args[++i];
+            } else if (args[i].equals("-category_path")) {
+                category_path = args[++i];
             } else if (args[i].equals("-out_dir")) {
                 out_dir = args[++i];
             } else if (args[i].equals("-article_categories")) {
@@ -133,17 +140,18 @@ public class ArticleCandidates {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             }
         }
-        CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep);
+        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
+        Map<String, Map<String, Map<String, Integer>>> cat_reps = (Map<String, Map<String, Map<String, Integer>>>) FileUtils.readObject(cat_rep_path);
+
         ArticleCandidates ac = new ArticleCandidates(cat);
 
         //set the entity categories for the articles.
-        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(article_cats, seed_entities);
+        Map<String, Set<String>> cats_entities = DataUtils.readCategoryMappingsWiki(article_cats, seed_entities);
+        Map<String, Set<String>> entity_cats = DataUtils.getArticleCategories(cats_entities);
 
         //set num entities for each category.
-        Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, entity_categories);
-
-        ac.cat_to_map = cats;
-        ac.root_category = cat;
+        Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, cats_entities);
+        cats.keySet().forEach(category -> cats.get(category).cat_representation = cat_reps.get(category));
 
         /*
             we consider candidates only from the entities which are associated to categories
@@ -153,11 +161,14 @@ public class ArticleCandidates {
         cat.children.keySet().parallelStream().forEach(child_label -> {
             CategoryRepresentation child = cat.children.get(child_label);
             if (child.entities.size() <= 1) {
-                System.out.printf("Skipping category %s due to the fact that it contains only 1 entity.\n", child.label);
                 return;
             }
 
-            List<TableCandidateFeatures> candidates = ac.constructCandidateRepresentations(child.entities, entity_categories, cats);
+            List<TableCandidateFeatures> candidates = ac.constructCandidateRepresentations(child.entities, entity_cats);
+            if (candidates.isEmpty()) {
+                return;
+            }
+            System.out.printf("Finished generating table matching candidate representations for %d articles.\n", candidates.size());
             String out_file = out_dir_f + "/" + child.node_id;
             FileUtils.saveObject(candidates, out_file);
         });
@@ -168,12 +179,9 @@ public class ArticleCandidates {
      *
      * @param entities
      * @param entity_categories
-     * @param cats
      * @return
      */
-    public List<TableCandidateFeatures> constructCandidateRepresentations(Set<String> entities,
-                                                                          Map<String, Set<String>> entity_categories,
-                                                                          Map<String, CategoryRepresentation> cats) {
+    public List<TableCandidateFeatures> constructCandidateRepresentations(Set<String> entities, Map<String, Set<String>> entity_categories) {
         List<TableCandidateFeatures> candidates = new ArrayList<>();
         String[] entities_arr = new String[entities.size()];
         entities.toArray(entities_arr);
@@ -190,8 +198,6 @@ public class ArticleCandidates {
                 candidates.add(tbl_candidate);
             }
         }
-
-        System.out.printf("Finished generating table matching candidate representations for %d articles.\n", candidates.size());
         return candidates;
     }
 }

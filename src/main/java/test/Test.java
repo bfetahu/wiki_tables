@@ -1,30 +1,35 @@
 package test;
 
-import representation.CategoryRepresentation;
-import utils.DataUtils;
 import utils.FileUtils;
 
-import java.util.Map;
-import java.util.Set;
+import java.io.BufferedReader;
 
 /**
  * Created by besnik on 6/6/17.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
-        String category_path = args[0];
-        String seed_path = args[1];
-        String entity_categories_path = args[2];
+        BufferedReader reader = FileUtils.getFileReader("/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv");
+        String line;
 
-        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
-        Set<String> seeds = FileUtils.readIntoSet(seed_path, "\n", false);
+        StringBuffer sb = new StringBuffer();
+        while ((line = reader.readLine()) != null) {
+            String[] tmp = line.split("\t");
+            if (tmp.length != 2) {
+                continue;
+            }
 
-        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, seeds);
-        System.out.println("Finished reading category to article mappings for " + entity_categories.size() + " entities.");
+            tmp[0] = tmp[0].replaceAll("\\|(.*?)$", "");
+            tmp[1] = tmp[1].replaceAll("\\|(.*?)$", "");
 
-        //set num entities for each category.
-        DataUtils.updateCatsWithEntities(cat, entity_categories);
+            sb.append(tmp[0]).append("\t").append(tmp[1]).append("\n");
 
-        System.out.println(cat.entities.size());
+            if (sb.length() > 10000) {
+                FileUtils.saveText(sb.toString(), "/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv.txt", true);
+                sb.delete(0, sb.length());
+            }
+        }
+
+        FileUtils.saveText(sb.toString(), "/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv.txt", true);
     }
 }

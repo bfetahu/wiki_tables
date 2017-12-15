@@ -340,7 +340,7 @@ public class CategoryRepresentation implements Serializable {
             System.out.println("Finished reading category to article mappings for " + entity_categories.size() + " entities.");
 
             //set num entities for each category.
-            DataUtils.updateCatsWithEntities(cat, entity_categories);
+            Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, entity_categories);
 
             //load the attributes for each entity
             Map<String, Map<String, Set<String>>> entity_attributes = DataUtils.loadEntityAttributes(entity_attributes_path, seed_entities);
@@ -349,13 +349,18 @@ public class CategoryRepresentation implements Serializable {
             //for each category, based on a bottom up approach, generate the attribute representation
             cat.getCategoryAttributeRepresentation(entity_categories, entity_attributes);
             cat.aggregateCategoryRepresentation();
-            //save the generated category representation
-            FileUtils.saveObject(cat, out_dir + "/category_hierarchy_representation.obj");
 
+            //save the generated category representation
+            Map<String, Map<String, Map<String, Integer>>> cat_reps = new HashMap<>();
+            cats.keySet().forEach(category -> {
+                cat_reps.put(category, cats.get(category).cat_representation);
+            });
+
+            FileUtils.saveObject(cat_reps, out_dir + "/category_hierarchy_representation.obj");
             //save also the textual representation for debugging
             cat.saveCategoryRepresentation(out_dir + "/category_hierarchy_representation.txt");
         } else if (option.equals("cat_utils")) {
-            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, null);
+            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, seed_entities);
             System.out.println("Finished reading category to article mappings...");
             DataUtils.updateCatsWithEntities(cat, entity_categories);
 

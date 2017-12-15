@@ -133,6 +133,7 @@ public class DataUtils {
         entity_categories.keySet().forEach(category -> {
             CategoryRepresentation cat_node = cats.get(category);
             if (cat_node == null) {
+                System.out.println(category + " is missing.");
                 return;
             }
             cat_node.entities.addAll(entity_categories.get(category));
@@ -140,5 +141,24 @@ public class DataUtils {
 
         cat.gatherEntities();
         return cats;
+    }
+
+    /**
+     * Convert the category -> article map datastructure into article -> category.
+     *
+     * @param cats_entities
+     * @return
+     */
+    public static Map<String, Set<String>> getArticleCategories(Map<String, Set<String>> cats_entities) {
+        Map<String, Set<String>> entity_cats = new HashMap<>();
+        cats_entities.keySet().forEach(category ->
+                cats_entities.get(category).forEach(entity -> {
+                    if (!entity_cats.containsKey(entity)) {
+                        entity_cats.put(entity, new HashSet<>());
+                    }
+                    entity_cats.get(entity).add(category);
+                })
+        );
+        return entity_cats;
     }
 }
