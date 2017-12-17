@@ -1,7 +1,7 @@
 package extractor;
 
 import org.w3c.dom.Document;
-import utils.FileUtils;
+import io.FileUtils;
 
 import java.io.BufferedReader;
 import java.util.ArrayList;

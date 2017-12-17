@@ -1,5 +1,6 @@
 package utils;
 
+import io.FileUtils;
 import org.json.JSONObject;
 import representation.CategoryRepresentation;
 

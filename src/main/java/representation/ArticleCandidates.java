@@ -1,11 +1,14 @@
 package representation;
 
 import datastruct.TableCandidateFeatures;
+import io.FileUtils;
 import utils.DataUtils;
-import utils.FileUtils;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by besnik on 12/6/17.
@@ -62,8 +65,14 @@ public class ArticleCandidates {
 
                 //get the lowest common ancestors between the two categories
                 Set<CategoryRepresentation> common_ancestors = findCommonAncestor(cat_a, cat_b);
+                if (common_ancestors == null || common_ancestors.isEmpty()) {
+                    continue;
+                }
                 matching.lowest_common_ancestors.add(common_ancestors);
             }
+        }
+        if (matching.lowest_common_ancestors.isEmpty()) {
+            return null;
         }
         return matching;
     }
@@ -86,6 +95,7 @@ public class ArticleCandidates {
 
         //take the intersection of the two parent sets.
         parents_a.retainAll(parents_b);
+        parents_a.remove("root");
 
         if (parents_a.isEmpty()) {
             return null;
@@ -123,9 +133,10 @@ public class ArticleCandidates {
         });
     }
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, InterruptedException {
         String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "";
         Set<String> seed_entities = new HashSet<>();
+        int num_threads = 5;
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-cat_rep")) {
@@ -138,6 +149,8 @@ public class ArticleCandidates {
                 article_cats = args[++i];
             } else if (args[i].equals("-seed_entities")) {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
+            } else if (args[i].equals("-num_threads")) {
+                num_threads = Integer.valueOf(args[++i]);
             }
         }
         CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
@@ -158,20 +171,36 @@ public class ArticleCandidates {
             that are children of the root category.
         */
         final String out_dir_f = out_dir;
+        Set<String> finished_entities = FileUtils.readIntoSet("finished.log", "\n", false);
+        ExecutorService thread_pool = Executors.newFixedThreadPool(num_threads);
         cat.children.keySet().parallelStream().forEach(child_label -> {
-            CategoryRepresentation child = cat.children.get(child_label);
-            if (child.entities.size() <= 1) {
-                return;
-            }
+            Runnable r = () -> {
+                CategoryRepresentation child = cat.children.get(child_label);
+                String out_file = out_dir_f + "/" + child.node_id;
 
-            List<TableCandidateFeatures> candidates = ac.constructCandidateRepresentations(child.entities, entity_cats);
-            if (candidates.isEmpty()) {
-                return;
-            }
-            System.out.printf("Finished generating table matching candidate representations for %d articles.\n", candidates.size());
-            String out_file = out_dir_f + "/" + child.node_id;
-            FileUtils.saveObject(candidates, out_file);
+                if (child.entities.size() <= 1 || finished_entities.contains("" + child.node_id)) {
+                    return;
+                }
+
+                List<TableCandidateFeatures> candidates = ac.constructCandidateRepresentations(child.entities, entity_cats);
+                if (!candidates.isEmpty()) {
+                    FileUtils.saveObject(candidates, out_file);
+                    FileUtils.saveText(child.node_id + "\n", "finished.log", true);
+
+                    try {
+                        Process p = Runtime.getRuntime().exec("gzip " + out_file);
+                        p.waitFor();
+                        p.destroy();
+                    } catch (Exception e) {
+                        System.out.println("Error at category " + child_label + " with message " + e.getMessage());
+                    }
+                    System.out.printf("Finished generating table matching candidate %s representations for %d articles.\n", child_label, candidates.size());
+                }
+            };
+            thread_pool.submit(r);
         });
+        thread_pool.shutdown();
+        thread_pool.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
     }
 
     /**

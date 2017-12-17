@@ -60,13 +60,19 @@
     <dependencies>
         <dependency>
             <groupId>de.l3s.fetahu</groupId>
-            <artifactId>utils</artifactId>
-            <version>2.0</version>
+            <artifactId>io_utils</artifactId>
+            <version>1.2</version>
         </dependency>
         <dependency>
             <groupId>de.l3s.fetahu</groupId>
             <artifactId>wiki_utils</artifactId>
             <version>2.1</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>utils</artifactId>
+                    <groupId>de.l3s.fetahu</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>edu.nlp</groupId>

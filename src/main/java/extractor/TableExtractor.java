@@ -6,7 +6,7 @@ import edu.jhu.nlp.wikipedia.WikiXMLParser;
 import edu.jhu.nlp.wikipedia.WikiXMLParserFactory;
 import entities.WikiEntity;
 import entities.WikiSection;
-import utils.FileUtils;
+import io.FileUtils;
 
 import java.util.*;
 

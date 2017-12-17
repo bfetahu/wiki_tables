@@ -4,7 +4,7 @@ import gnu.trove.set.hash.TIntHashSet;
 import org.apache.commons.compress.compressors.CompressorException;
 import org.apache.commons.lang3.StringUtils;
 import utils.DataUtils;
-import utils.FileUtils;
+import io.FileUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -297,6 +297,7 @@ public class CategoryRepresentation implements Serializable {
                     cat_child.getValue().paths = cat.paths;
 
                     if (cat.paths.contains(cat_child.getValue().node_id)) {
+                        cat_child.getValue().parents.remove(cat.label);
                         child_keys.remove();
                         continue;
                     }

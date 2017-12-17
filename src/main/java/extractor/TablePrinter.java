@@ -6,7 +6,7 @@ import datastruct.wikitable.WikiTableCell;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import utils.FileUtils;
+import io.FileUtils;
 
 import java.io.BufferedReader;
 import java.util.HashSet;

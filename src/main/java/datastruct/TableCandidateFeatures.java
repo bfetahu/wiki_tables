@@ -123,25 +123,32 @@ public class TableCandidateFeatures implements Serializable {
 
     }
 
+    /**
+     * Aggregate the category representation for a group of children categories.
+     *
+     * @param rep
+     * @param sub_cats
+     * @return
+     */
     public Map<String, Map<String, Integer>> updateCategoryRepresentation(Map<String, Map<String, Integer>> rep, Set<CategoryRepresentation> sub_cats) {
         Map<String, Map<String, Integer>> rep_a = new HashMap<>();
-        sub_cats.forEach(cat -> {
-            rep.keySet().forEach(key -> {
-                if (!rep_a.containsKey(key)) {
-                    rep_a.put(key, rep.get(key));
-                    return;
-                }
-                Map<String, Integer> sub_rep_a = rep_a.get(key);
-                Map<String, Integer> sub_rep = rep.get(key);
-                sub_rep.keySet().forEach(val -> {
-                    if (!sub_rep_a.containsKey(val)) {
-                        sub_rep_a.put(val, sub_rep.get(val));
+        sub_cats.forEach(cat ->
+                rep.keySet().forEach(key -> {
+                    if (!rep_a.containsKey(key)) {
+                        rep_a.put(key, rep.get(key));
                         return;
                     }
-                    sub_rep_a.put(val, sub_rep.get(val) + sub_rep_a.get(val));
-                });
-            });
-        });
+                    Map<String, Integer> sub_rep_a = rep_a.get(key);
+                    Map<String, Integer> sub_rep = rep.get(key);
+                    sub_rep.keySet().forEach(val -> {
+                        if (!sub_rep_a.containsKey(val)) {
+                            sub_rep_a.put(val, sub_rep.get(val));
+                            return;
+                        }
+                        sub_rep_a.put(val, sub_rep.get(val) + sub_rep_a.get(val));
+                    });
+                })
+        );
         return rep_a;
     }
 }
