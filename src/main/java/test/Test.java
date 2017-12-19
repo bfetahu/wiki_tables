@@ -1,28 +1,31 @@
 package test;
 
-import datastruct.TableCandidateFeatures;
 import io.FileUtils;
+import representation.CategoryRepresentation;
 
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by besnik on 6/6/17.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
-//        String file = "/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv.gz";
+        String file = "/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv.gz";
 
-//        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(file);
-//        Map<String, CategoryRepresentation> cats = new HashMap<>();
-//        cat.loadIntoMapChildCats(cats);
+        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(file);
 
-        String candidate_file = "/Users/besnik/Desktop/wiki_tables/candidates/151750.gz";
+        StringBuffer sb = new StringBuffer();
+        cat.printCategories("/Users/besnik/Desktop/wiki_tables/wiki_cat_taxonomy.tsv", sb);
+        FileUtils.saveText(sb.toString(), "/Users/besnik/Desktop/wiki_tables/wiki_cat_taxonomy.tsv", true);
+        sb.delete(0, sb.length());
 
-        List<TableCandidateFeatures> candidates = (List<TableCandidateFeatures>) FileUtils.readObject(candidate_file);
-        for (TableCandidateFeatures tbl : candidates) {
-            System.out.println(tbl.getArticleA() + "\t" + tbl.getArticleB());
-            tbl.lowest_common_ancestors.forEach(System.out::println);
-        }
+        Map<String, CategoryRepresentation> cats = new HashMap<>();
+        cat.loadIntoMapChildCats(cats);
+
+        String root_cats = cat.children.keySet().toString().replaceAll(", ", "\n");
+        root_cats = root_cats.substring(1, root_cats.length() - 2);
+        FileUtils.saveText(root_cats, "/Users/besnik/Desktop/wiki_tables/collapsed_categories_root.txt");
     }
 
 }

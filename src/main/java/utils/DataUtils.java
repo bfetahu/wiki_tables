@@ -10,11 +10,32 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Created by besnik on 12/8/17.
  */
 public class DataUtils {
+    public static Pattern pdates[] = {Pattern.compile("\\b[0-9]{3,}\\b"), Pattern.compile("[0-9]{3,}-[0-9]{2,}"), Pattern.compile("\\b[0-9]{3,}s")};
+
+    /**
+     * Remove date information from the category label.
+     *
+     * @param category
+     * @return
+     */
+    public static String removeDateFromCategory(String category) {
+        String new_cat_label = category;
+        for (int i = 0; i < pdates.length; i++) {
+            Matcher m = pdates[i].matcher(category);
+            while (m.find()) {
+                new_cat_label = m.replaceAll("");
+            }
+        }
+        return new_cat_label.trim();
+    }
+
     /**
      * Read the entity-category associations.
      *

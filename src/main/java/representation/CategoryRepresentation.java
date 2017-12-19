@@ -1,10 +1,10 @@
 package representation;
 
 import gnu.trove.set.hash.TIntHashSet;
+import io.FileUtils;
 import org.apache.commons.compress.compressors.CompressorException;
 import org.apache.commons.lang3.StringUtils;
 import utils.DataUtils;
-import io.FileUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -20,6 +20,8 @@ public class CategoryRepresentation implements Serializable {
     public String label;
     public int level;
     public int node_id;
+
+    public boolean is_aggregate = false;
 
     public transient Map<String, CategoryRepresentation> parents = new HashMap<>();
     public Map<String, CategoryRepresentation> children = new HashMap<>();
@@ -177,13 +179,61 @@ public class CategoryRepresentation implements Serializable {
         removeCyclesDFS(root);
         root.setLevels(0);
         root.ensureHierarchy();
+        root.pruneCategoriesByDate();
+        root.ensureHierarchy();
+        root.setLevels(0);
 
         return root;
     }
 
+    /**
+     * Prunes the categories based on Dates, such that similar categories which differ only on the date are collapsed
+     * into a parent category by removing the date information.
+     */
+    public void pruneCategoriesByDate() {
+        if (!children.isEmpty() && !is_aggregate) {
+            //the pruning of categories is done at each level of the category hierarchy.
+            Map<String, Set<String>> children_prunning = new HashMap<>();
+            for (String child_label : children.keySet()) {
+                String new_label = DataUtils.removeDateFromCategory(child_label);
+                new_label = new_label.equals("") ? child_label : new_label;
+
+                if (!children_prunning.containsKey(new_label)) {
+                    children_prunning.put(new_label, new HashSet<>());
+                }
+                children_prunning.get(new_label).add(child_label);
+            }
+
+            //collapse categories.
+            for (String child_group : children_prunning.keySet()) {
+                Set<String> child_grouped_keys = children_prunning.get(child_group);
+                if (child_grouped_keys.size() != 1) {
+                    CategoryRepresentation cat_new = new CategoryRepresentation(child_group, level + 2);
+                    cat_new.is_aggregate = true;
+
+                    //add the parent-child relations
+                    children.put(cat_new.label, cat_new);
+
+                    for (String child_label : child_grouped_keys) {
+                        CategoryRepresentation child = children.get(child_label);
+
+                        children.remove(child_label);
+
+                        cat_new.parents.putAll(child.parents);
+                        cat_new.children.put(child.label, child);
+
+                        child.parents.remove(label);
+                        child.parents.put(cat_new.label, cat_new);
+                    }
+                }
+            }
+            children.values().stream().forEach(child -> child.pruneCategoriesByDate());
+        }
+    }
+
 
     /**
-     * Load the categories into a map datastructure.
+     * Load the categories into a map data structure.
      *
      * @param file
      * @return
