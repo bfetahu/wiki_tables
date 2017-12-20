@@ -9,6 +9,7 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Created by besnik on 12/6/17.
@@ -68,7 +69,7 @@ public class ArticleCandidates {
                 if (common_ancestors == null || common_ancestors.isEmpty()) {
                     continue;
                 }
-                matching.lowest_common_ancestors.add(common_ancestors);
+                matching.lowest_common_ancestors.add(common_ancestors.stream().map(x -> x.label).collect(Collectors.toSet()));
             }
         }
         if (matching.lowest_common_ancestors.isEmpty()) {
@@ -154,7 +155,7 @@ public class ArticleCandidates {
             }
         }
         CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
-        Map<String, Map<String, Map<String, Integer>>> cat_reps = (Map<String, Map<String, Map<String, Integer>>>) FileUtils.readObject(cat_rep_path);
+//        Map<String, Map<String, Map<String, Integer>>> cat_reps = (Map<String, Map<String, Map<String, Integer>>>) FileUtils.readObject(cat_rep_path);
 
         ArticleCandidates ac = new ArticleCandidates(cat);
 
@@ -164,7 +165,7 @@ public class ArticleCandidates {
 
         //set num entities for each category.
         Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, cats_entities);
-        cats.keySet().forEach(category -> cats.get(category).cat_representation = cat_reps.get(category));
+//        cats.keySet().forEach(category -> cats.get(category).cat_representation = cat_reps.get(category));
 
         /*
             we consider candidates only from the entities which are associated to categories

@@ -19,7 +19,7 @@ public class TableCandidateFeatures implements Serializable {
     private Set<String> article_categories_a;
     private Set<String> article_categories_b;
 
-    public List<Set<CategoryRepresentation>> lowest_common_ancestors;
+    public List<Set<String>> lowest_common_ancestors;
 
     public TableCandidateFeatures(String article_a, String article_b) {
         lowest_common_ancestors = new ArrayList<>();

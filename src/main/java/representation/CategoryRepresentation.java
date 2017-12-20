@@ -134,6 +134,8 @@ public class CategoryRepresentation implements Serializable {
         String line;
 
         Map<String, CategoryRepresentation> all_cats = loadAllCategoriesWiki(category_file);
+        int next_node_id = all_cats.values().stream().mapToInt(cat -> cat.node_id).max().getAsInt();
+
         while ((line = reader.readLine()) != null) {
             line = line.trim();
             String[] data = line.split("\t");
@@ -179,7 +181,7 @@ public class CategoryRepresentation implements Serializable {
         removeCyclesDFS(root);
         root.setLevels(0);
         root.ensureHierarchy();
-        root.pruneCategoriesByDate();
+        root.pruneCategoriesByDate(next_node_id);
         root.ensureHierarchy();
         root.setLevels(0);
 
@@ -189,8 +191,10 @@ public class CategoryRepresentation implements Serializable {
     /**
      * Prunes the categories based on Dates, such that similar categories which differ only on the date are collapsed
      * into a parent category by removing the date information.
+     *
+     * @param next_node_id the current maximum node ID which we will use to assign to the aggregate nodes.
      */
-    public void pruneCategoriesByDate() {
+    public void pruneCategoriesByDate(int next_node_id) {
         if (!children.isEmpty() && !is_aggregate) {
             //the pruning of categories is done at each level of the category hierarchy.
             Map<String, Set<String>> children_prunning = new HashMap<>();
@@ -210,6 +214,7 @@ public class CategoryRepresentation implements Serializable {
                 if (child_grouped_keys.size() != 1) {
                     CategoryRepresentation cat_new = new CategoryRepresentation(child_group, level + 2);
                     cat_new.is_aggregate = true;
+                    cat_new.node_id = next_node_id + 1;
 
                     //add the parent-child relations
                     children.put(cat_new.label, cat_new);
@@ -227,7 +232,10 @@ public class CategoryRepresentation implements Serializable {
                     }
                 }
             }
-            children.values().stream().forEach(child -> child.pruneCategoriesByDate());
+            for (String child_label : children.keySet()) {
+                CategoryRepresentation child = children.get(child_label);
+                child.pruneCategoriesByDate(++next_node_id);
+            }
         }
     }
 

@@ -17,7 +17,13 @@ import java.util.regex.Pattern;
  * Created by besnik on 12/8/17.
  */
 public class DataUtils {
-    public static Pattern pdates[] = {Pattern.compile("\\b[0-9]{3,}\\b"), Pattern.compile("[0-9]{3,}-[0-9]{2,}"), Pattern.compile("\\b[0-9]{3,}s")};
+    public static Pattern pdates[] = {
+            Pattern.compile("[0-9]{3,}–[0-9]{2,}"), Pattern.compile("[0-9]{3,}-[0-9]{2,}"),
+            Pattern.compile("\\b[0-9]{3,}\\b"), Pattern.compile("[0-9]+[a-z]+\\s+"),
+            Pattern.compile("[0-9]+[a-z]+-[a-zA-Z]+\\s+"), Pattern.compile("[0-9]+[a-z]+–[a-zA-Z]+\\s+"),
+            Pattern.compile("from(.*?)$"), Pattern.compile("in\\s+(.*?)$"),
+            Pattern.compile("of\\s+(.*?)$"), Pattern.compile("by\\s+(.*?)$")
+    };
 
     /**
      * Remove date information from the category label.
@@ -28,9 +34,13 @@ public class DataUtils {
     public static String removeDateFromCategory(String category) {
         String new_cat_label = category;
         for (int i = 0; i < pdates.length; i++) {
-            Matcher m = pdates[i].matcher(category);
+            Matcher m = pdates[i].matcher(new_cat_label);
             while (m.find()) {
-                new_cat_label = m.replaceAll("");
+                String tmp = m.replaceAll("").trim();
+                if (tmp.isEmpty()) {
+                    continue;
+                }
+                new_cat_label = tmp;
             }
         }
         return new_cat_label.trim();
