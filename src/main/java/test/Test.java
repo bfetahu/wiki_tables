@@ -2,32 +2,27 @@ package test;
 
 import io.FileUtils;
 import representation.CategoryRepresentation;
+import utils.DataUtils;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Created by besnik on 6/6/17.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
-        String file = "/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv.gz";
+        String category_path = "/Users/besnik/Desktop/wiki_tables/wiki_cats_201708.tsv.gz";
+        String article_file = "/Users/besnik/Desktop/wiki_tables/article_cats_201708.tsv.gz";
+        Set<String> seed_entities = FileUtils.readIntoSet("/Users/besnik/Desktop/wiki_tables/seed_entities.txt", "\n", false);
 
-        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(file);
+        Map<String, Set<String>> cats_entities = DataUtils.readCategoryMappingsWiki(article_file, seed_entities);
+        Map<String, Set<String>> entity_cats = DataUtils.getArticleCategories(cats_entities);
 
-        StringBuffer sb = new StringBuffer();
-        cat.printCategories("/Users/besnik/Desktop/wiki_tables/wiki_cat_taxonomy.tsv", sb);
-        FileUtils.saveText(sb.toString(), "/Users/besnik/Desktop/wiki_tables/wiki_cat_taxonomy.tsv", true);
-        sb.delete(0, sb.length());
+        CategoryRepresentation root = CategoryRepresentation.readCategoryGraph(category_path);
+        Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(root, cats_entities);
 
-
-        Map<String, CategoryRepresentation> cats = new HashMap<>();
-        cat.loadIntoMapChildCats(cats);
-
-        String root_cats = cat.children.keySet().toString().replaceAll(", ", "\n");
-        root_cats = root_cats.substring(1, root_cats.length() - 2);
-        FileUtils.saveText(root_cats, "/Users/besnik/Desktop/wiki_tables/collapsed_categories_root.txt");
-
+        System.out.println(cats.get(args[1]).node_id);
     }
 
 }

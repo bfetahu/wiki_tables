@@ -151,4 +151,15 @@ public class TableCandidateFeatures implements Serializable {
         );
         return rep_a;
     }
+
+    public String printCandidates(CategoryRepresentation cat) {
+        StringBuffer sb = new StringBuffer();
+        sb.append(cat.node_id).append("\t").append(cat.label).append("\t").append(article_a).append("\t").append(article_b);
+
+        for (Set<String> ancestors : lowest_common_ancestors) {
+            sb.append("\t").append(ancestors.toString());
+        }
+
+        return sb.toString();
+    }
 }

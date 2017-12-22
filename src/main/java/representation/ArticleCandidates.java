@@ -6,9 +6,7 @@ import utils.DataUtils;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -135,9 +133,8 @@ public class ArticleCandidates {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "";
+        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "", option = "";
         Set<String> seed_entities = new HashSet<>();
-        int num_threads = 5;
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-cat_rep")) {
@@ -150,58 +147,88 @@ public class ArticleCandidates {
                 article_cats = args[++i];
             } else if (args[i].equals("-seed_entities")) {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
-            } else if (args[i].equals("-num_threads")) {
-                num_threads = Integer.valueOf(args[++i]);
+            } else if (args[i].equals("-option")) {
+                option = args[++i];
             }
         }
+
         CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
-//        Map<String, Map<String, Map<String, Integer>>> cat_reps = (Map<String, Map<String, Map<String, Integer>>>) FileUtils.readObject(cat_rep_path);
-
         ArticleCandidates ac = new ArticleCandidates(cat);
+        if (option.equals("candidates")) {
+            ac.generateCandidates(seed_entities, out_dir, article_cats);
+        } else if (option.equals("scoring")) {
 
+        }
+    }
+
+    /**
+     * Score the generated article candidates for table alignment, based on their similarity on the category representations,
+     * distance to the lowest common ancestor between the two categories.
+     *
+     * @param cat_rep_path
+     * @param out_dir
+     */
+    public void scoreTableCandidates(String cat_rep_path, String out_dir) {
+        Map<String, Map<String, Map<String, Integer>>> cat_reps = (Map<String, Map<String, Map<String, Integer>>>) FileUtils.readObject(cat_rep_path);
+        cat_to_map.keySet().forEach(cat_label -> cat_to_map.get(cat_label).cat_representation = cat_reps.get(cat_label));
+
+        //take the immediate children from the root category to read the article candidates.
+        List<Map.Entry<Integer, String>> child_cats = root_category.children.values().stream().map(cat -> new AbstractMap.SimpleEntry<>(cat.node_id, cat.label)).collect(Collectors.toList());
+
+        for (Map.Entry<Integer, String> cat_entry : child_cats) {
+            String out_file = out_dir + "/" + cat_entry.getKey() + ".gz";
+            List<TableCandidateFeatures> candidates = (List<TableCandidateFeatures>) FileUtils.readObject(out_file);
+
+            for (TableCandidateFeatures candidate : candidates) {
+
+            }
+        }
+    }
+
+    /**
+     * Generate the article candidates for table alignment.
+     *
+     * @param seed_entities
+     * @param out_dir
+     * @param article_cats
+     * @throws IOException
+     * @throws InterruptedException
+     */
+    public void generateCandidates(Set<String> seed_entities, String out_dir, String article_cats) throws IOException, InterruptedException {
         //set the entity categories for the articles.
         Map<String, Set<String>> cats_entities = DataUtils.readCategoryMappingsWiki(article_cats, seed_entities);
         Map<String, Set<String>> entity_cats = DataUtils.getArticleCategories(cats_entities);
 
         //set num entities for each category.
-        Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, cats_entities);
-//        cats.keySet().forEach(category -> cats.get(category).cat_representation = cat_reps.get(category));
+        DataUtils.updateCatsWithEntities(root_category, cats_entities);
 
         /*
             we consider candidates only from the entities which are associated to categories
             that are children of the root category.
         */
-        final String out_dir_f = out_dir;
         Set<String> finished_entities = FileUtils.readIntoSet("finished.log", "\n", false);
-        ExecutorService thread_pool = Executors.newFixedThreadPool(num_threads);
-        cat.children.keySet().parallelStream().forEach(child_label -> {
-            Runnable r = () -> {
-                CategoryRepresentation child = cat.children.get(child_label);
-                String out_file = out_dir_f + "/" + child.node_id;
+        AtomicInteger atm = new AtomicInteger();
+        root_category.children.keySet().parallelStream().forEach(child_label -> {
+            CategoryRepresentation child = root_category.children.get(child_label);
+            int file_id = atm.incrementAndGet();
+            String out_file = out_dir + "/" + file_id;
 
-                if (child.entities.size() <= 1 || finished_entities.contains("" + child.node_id)) {
-                    return;
-                }
+            if (child.entities.size() <= 1 || finished_entities.contains(out_file)) {
+                return;
+            }
+            System.out.printf("Starting generating table matching candidate %s representations with %d articles.\n", child_label, child.entities.size());
+            int total = constructCandidateRepresentations(child.entities, entity_cats, out_file, child);
+            FileUtils.saveText(out_file + "\n", "finished.log", true);
 
-                List<TableCandidateFeatures> candidates = ac.constructCandidateRepresentations(child.entities, entity_cats);
-                if (!candidates.isEmpty()) {
-                    FileUtils.saveObject(candidates, out_file);
-                    FileUtils.saveText(child.node_id + "\n", "finished.log", true);
-
-                    try {
-                        Process p = Runtime.getRuntime().exec("gzip " + out_file);
-                        p.waitFor();
-                        p.destroy();
-                    } catch (Exception e) {
-                        System.out.println("Error at category " + child_label + " with message " + e.getMessage());
-                    }
-                    System.out.printf("Finished generating table matching candidate %s representations for %d articles.\n", child_label, candidates.size());
-                }
-            };
-            thread_pool.submit(r);
+            try {
+                Process p = Runtime.getRuntime().exec("gzip " + out_file);
+                p.waitFor();
+                p.destroy();
+            } catch (Exception e) {
+                System.out.println("Error at category " + child_label + " with message " + e.getMessage());
+            }
+            System.out.printf("Finished generating table matching candidate %s representations for %d articles.\n", child_label, total);
         });
-        thread_pool.shutdown();
-        thread_pool.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -211,11 +238,12 @@ public class ArticleCandidates {
      * @param entity_categories
      * @return
      */
-    public List<TableCandidateFeatures> constructCandidateRepresentations(Set<String> entities, Map<String, Set<String>> entity_categories) {
-        List<TableCandidateFeatures> candidates = new ArrayList<>();
+    public int constructCandidateRepresentations(Set<String> entities, Map<String, Set<String>> entity_categories, String out_file, CategoryRepresentation cat) {
         String[] entities_arr = new String[entities.size()];
         entities.toArray(entities_arr);
 
+        int total = 0;
+        StringBuffer sb = new StringBuffer();
         for (int i = 0; i < entities_arr.length; i++) {
             String article_candidate_a = entities_arr[i];
             for (int j = i + 1; j < entities_arr.length; j++) {
@@ -225,9 +253,16 @@ public class ArticleCandidates {
                 if (tbl_candidate == null) {
                     continue;
                 }
-                candidates.add(tbl_candidate);
+
+                total++;
+                sb.append(tbl_candidate.printCandidates(cat)).append("\n");
+                if (sb.length() > 100000) {
+                    FileUtils.saveText(sb.toString(), out_file, true);
+                    sb.delete(0, sb.length());
+                }
             }
         }
-        return candidates;
+        FileUtils.saveText(sb.toString(), out_file, true);
+        return total;
     }
 }
