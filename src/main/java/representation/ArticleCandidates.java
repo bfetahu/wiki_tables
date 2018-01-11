@@ -35,10 +35,11 @@ public class ArticleCandidates {
         Set<String> article_b_cats = article_categories.get(article_b);
 
         //check first if they come from the same categories.
-        if (article_a_cats == null || article_b_cats == null || article_a_cats.equals(article_b_cats)) {
+        if (article_a_cats == null || article_b_cats == null) {
             //return null in this case, indicating that the articles belong to exactly the same categories
             return null;
         }
+        boolean same_cats = article_a_cats.equals(article_b_cats);
 
         /*
              Else, we first find the lowest common ancestor between the categories of the two articles.
@@ -49,6 +50,11 @@ public class ArticleCandidates {
         TableCandidateFeatures matching = new TableCandidateFeatures(article_a, article_b);
         matching.setArticleACategories(article_a_cats, cat_to_map);
         matching.setArticleBCategories(article_b_cats, cat_to_map);
+
+        if (same_cats) {
+            matching.lowest_common_ancestors.add(article_a_cats);
+            return matching;
+        }
 
         for (String cat_a_label : article_a_cats) {
             CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);
