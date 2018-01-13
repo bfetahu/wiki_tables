@@ -1,5 +1,7 @@
 package datastruct.wikitable;
 
+import utils.TableCellUtils;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,28 +21,9 @@ public class WikiColumnHeader implements Serializable {
 
     public WikiColumnHeader(String column_header_markup) {
         //check if it first contains a colspan
-        if (column_header_markup.contains("colspan")) {
-            int start_index = column_header_markup.indexOf("colspan=") + "colspan=".length();
-            String col_span_value = column_header_markup.substring(start_index, column_header_markup.indexOf("|", start_index));
-            if (col_span_value.contains("style")) {
-                col_span_value = col_span_value.substring(0, col_span_value.indexOf(" "));
-                col_span_value = col_span_value.replaceAll("style=(.*?)", "");
-            }
-            col_span_value = col_span_value.replaceAll("\"", "").trim().intern();
-            col_span = Integer.parseInt(col_span_value);
-        }
-
-        if (column_header_markup.contains("rowspan")) {
-            int start_index = column_header_markup.indexOf("rowspan=") + "rowspan=".length();
-            String row_span_value = column_header_markup.substring(start_index, column_header_markup.indexOf("|", start_index));
-            if (row_span_value.contains("style")) {
-                row_span_value = row_span_value.substring(0, row_span_value.indexOf(" "));
-                row_span_value = row_span_value.replaceAll("style=(.*?)", "");
-            }
-            row_span_value = row_span_value.replaceAll("\"", "").trim().intern();
-            row_span = Integer.parseInt(row_span_value);
-        }
-
+        int[] span = TableCellUtils.getRowColSpan(column_header_markup);
+        row_span = span[0];
+        col_span = span[1];
         int sub_index = column_header_markup.contains("|") ? column_header_markup.indexOf("|") + 1 : 0;
         column_name = column_header_markup.substring(sub_index).trim();
         column_name = column_name.replaceAll("!", "").trim();

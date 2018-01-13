@@ -3,10 +3,10 @@ package extractor;
 import datastruct.wikitable.WikiColumnHeader;
 import datastruct.wikitable.WikiTable;
 import datastruct.wikitable.WikiTableCell;
+import io.FileUtils;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import io.FileUtils;
 
 import java.io.BufferedReader;
 import java.util.HashSet;
@@ -19,8 +19,6 @@ import java.util.Set;
  */
 public class TablePrinter {
     public static void main(String[] args) {
-//        String[] args1 = {"/Users/besnik/Documents/L3S/wiki_tables/data/table_data_top_1000.json", "/Users/besnik/Documents/L3S/wiki_tables/data/top_1000.json"};
-//        args = args1;
         String in_file = args[0];
         String out_file = args[1];
 
@@ -120,6 +118,9 @@ public class TablePrinter {
                     sb.append(",");
                 }
                 WikiColumnHeader col = table.columns[i][j];
+                if (col == null) {
+                    continue;
+                }
                 List<Map.Entry<Object, Integer>> value_dist = col.getSortedColumnDomain();
                 sb.append("{\"name\":\"").append(StringEscapeUtils.escapeJson(col.column_name)).
                         append("\", \"col_span\":").append(col.col_span).

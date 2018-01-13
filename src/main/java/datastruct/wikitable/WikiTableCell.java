@@ -37,42 +37,11 @@ public class WikiTableCell implements Serializable {
         if (value.startsWith("|")) {
             value = value.replaceAll("^(\\s?\\|)+", "");
         }
-        if (value.contains("rowspan")) {
-            int start_index = value.indexOf("rowspan=") + "rowspan=".length();
-            String rowspan_value_str = value.substring(start_index, value.indexOf("|", start_index)).replaceAll("\"", "").trim();
-            if (rowspan_value_str.contains("style")) {
-                rowspan_value_str = rowspan_value_str.substring(0, rowspan_value_str.indexOf(" "));
+        int[] span = TableCellUtils.getRowColSpan(value);
+        value = TableCellUtils.removeFormattingClauses(value);
+        row_span = span[0];
+        col_span = span[1];
 
-                value = value.replaceAll("style=(.*?)", "");
-            }
-            row_span = Integer.parseInt(rowspan_value_str);
-
-            value = value.replaceAll("rowspan=\"?[0-9]*\"?", "");
-        }
-        if (value.contains("colspan")) {
-            int start_index = value.indexOf("colspan=") + "colspan=".length();
-            String colspan_value_str = value.substring(start_index, value.indexOf("|", start_index)).replaceAll("\"", "").trim();
-            if (colspan_value_str.contains("style")) {
-                colspan_value_str = colspan_value_str.substring(0, colspan_value_str.indexOf(" "));
-                value = value.replaceAll("style=(.*?)", "");
-            }
-            if (colspan_value_str.contains("align")) {
-                colspan_value_str = colspan_value_str.replaceAll("align=\"?(.*?)\"?$", "").trim();
-            }
-            col_span = Integer.parseInt(colspan_value_str);
-
-            value = value.replaceAll("colspan=\"?[0-9]*\"?", "");
-        }
-
-        //check if it contains a flag tag
-        if (value.contains("flag") || value.contains("Flag")) {
-            value = value.replaceAll("(?i)FlagU\\|", "");
-        }
-        //check if its left/right/center aligned
-        if (value.contains("align")) {
-            value = value.replaceAll("align=\"(.*?)\"", "");
-        }
-        value = value.replaceAll("small\\|", "");
         value = value.replaceAll("^!\\|?", "");
         value = value.replaceAll("^\\|+", "");
         value = value.replaceAll("'{2,}", "");

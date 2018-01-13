@@ -1,5 +1,7 @@
 package datastruct.wikitable;
 
+import utils.TableCellUtils;
+
 import java.io.Serializable;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -51,7 +53,13 @@ public class WikiTable implements Serializable {
 
             //if the line contains !! we need to split to replace it by \t as this is the column delimiter.
             line = line.contains("!!") ? line.replaceAll("!\\s?!", "\t!!") : line;
-            line = line.contains("|") ? line.replaceAll("\\|\\s?\\|", "\t") : line;
+
+            //there are fields like {{sortname}} who can contain || and which should not be replaced with \t
+            if (line.contains("{{sortname")) {
+                line = TableCellUtils.assignTabDelimLine(line);
+            } else {
+                line = line.contains("|") ? line.replaceAll("\\|\\s?\\|", "\t") : line;
+            }
 
             if (line.startsWith("|+")) {
                 parsed_lines.add(line);
@@ -63,7 +71,33 @@ public class WikiTable implements Serializable {
                     parsed_lines.add(sb.toString());
                     sb.delete(0, sb.length());
                 }
+
+                //check if its a new line and contains only formatting clauses.
+                // This is important as we can misinterpret it as containing data values.
+                // An example is the lines starting like "|-bgcolor="#D0F0C0"
+                String tmp_line = TableCellUtils.removeFormattingClauses(line);
+                if (tmp_line.equals("|")) {
+                    continue;
+                }
+
+                //another exception is that the new line has some form of a tag, e.g. |-[key]
+                tmp_line = tmp_line.replaceAll("\\|-[0-9a-zA-Z]*", "");
+                if (tmp_line.isEmpty()) {
+                    continue;
+                }
             }
+
+            //in some tables there are no explicit line breaks, however, such line breaks are indicated
+            // by rows which are encapsulated within {{ ROW DATA }} clauses, we will limit to only tables
+            //which do not contain those explicit line breaks
+            if (!markup.contains("|+") && (line.startsWith("{{") || line.equals("}}"))) {
+                if (sb.length() != 0) {
+                    parsed_lines.add(sb.toString());
+                    sb.delete(0, sb.length());
+                }
+                continue;
+            }
+
             if (line.equals("|-") || line.equals("|--") || line.trim().equals("|-")) {
                 continue;
             }
@@ -96,7 +130,7 @@ public class WikiTable implements Serializable {
         }
 
         //the header always contains !! when there are multiple columns in a line
-        if (line.contains("!!") || line.contains("\t!") || line.contains("!\t")) {
+        if (line.contains("!!") || (line.contains("\t!") && !TableCellUtils.header_match.matcher(line).find()) || (line.contains("!\t") && !TableCellUtils.header_match.matcher(line).find())) {
             return true;
         }
 
@@ -215,6 +249,9 @@ public class WikiTable implements Serializable {
      * @param header
      */
     public void assignColumnHeaders(String[] header) {
+        //we keep track if we are skipping any line header due to malformed data format
+        boolean has_malformed_headers = false;
+
         columns = new WikiColumnHeader[header.length][];
         int total_cols = 0;
         for (int i = 0; i < header.length; i++) {
@@ -223,6 +260,7 @@ public class WikiTable implements Serializable {
 
             for (int j = 0; j < sub_headers.length; j++) {
                 String sub_header = sub_headers[j];
+                sub_header = TableCellUtils.removeFormattingClauses(sub_header);
                 boolean isValidHeader = isValidColumnHeader(sub_header);
 
                 if (!isValidHeader) {
@@ -236,6 +274,15 @@ public class WikiTable implements Serializable {
                     total_cols += column.col_span;
                 }
             }
+
+            //in case somehow the succeeding header layer has less columns than the previous one,
+            //we have to skip as we do not know where to assign the columns,
+            //this happens when the second/third column layer is malformed
+            if (i != 0 && cols.size() < total_cols) {
+                has_malformed_headers = true;
+                continue;
+            }
+
             //assign the matrix dimension only in the first column header, there we will know the complete length
             if (i == 0) {
                 columns = new WikiColumnHeader[header.length][total_cols];
@@ -269,6 +316,21 @@ public class WikiTable implements Serializable {
                 col_pos += col.col_span;
             }
         }
+
+        List<WikiColumnHeader[]> headers_filtered = new ArrayList<>();
+        if (has_malformed_headers) {
+            for (int i = 0; i < columns.length; i++) {
+                if (columns[i] != null && columns[i][0] != null) {
+                    headers_filtered.add(columns[i]);
+                }
+            }
+            WikiColumnHeader[][] tmp_cols = new WikiColumnHeader[headers_filtered.size()][];
+            for (int i = 0; i < headers_filtered.size(); i++) {
+                tmp_cols[i] = headers_filtered.get(i);
+            }
+            columns = tmp_cols;
+        }
+
     }
 
     /**
@@ -440,19 +502,11 @@ public class WikiTable implements Serializable {
     }
 
     public void cleanMarkupTable() {
-        try {
-            markup = markup.replaceAll("(?i)\\{+cit(.*?)\\}+", "");
-            markup = markup.replaceAll("(?i)\\{+cit((.|\n)*?)\\}+", "");
-            markup = markup.replaceAll("<ref(\\s+name=(.*?))?/>", "");
-            markup = markup.replaceAll("<ref(\\s+name=(.*?))?>(.*?)</ref>", "");
-            markup = markup.replaceAll("valign=\"?[a-z0-9A-Z]*\"?", "");
-            markup = markup.replaceAll("\\|?\\s?align=\"?[a-z0-9A-Z]*\"?", "");
-            markup = markup.replaceAll("data-sort-(.*?)=\"(.*?)\"", "");
-            markup = markup.replaceAll("style=\"?(.*?)\"", "");
-            markup = markup.replaceAll("&nbsp.", "");
-
-        } catch (Exception e) {
-            System.out.println(markup);
-        }
+        markup = markup.replaceAll("(?i)\\{+cit(.*?)\\}+", "");
+        markup = markup.replaceAll("(?i)\\{+cit((.|\n)*?)\\}+", "");
+        markup = markup.replaceAll("<ref(\\s+name=(.*?))?/>", "");
+        markup = markup.replaceAll("<ref(\\s+name=(.*?))?>(.*?)</ref>", "");
+        markup = markup.replaceAll("data-sort-(.*?)=\"(.*?)\"", "");
+        markup = markup.replaceAll("&nbsp.", "");
     }
 }

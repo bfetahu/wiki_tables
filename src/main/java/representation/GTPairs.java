@@ -192,10 +192,14 @@ public class GTPairs {
                             for (int l = 0; l < tables_b.length(); l++) {
                                 JSONObject table_b = tables_b.getJSONObject(l);
 
-                                sb.append(article_a).append("\t").append(section_a.getString("section")).append("\t");
-                                sb.append(StringEscapeUtils.escapeJson(table_a.getString("caption"))).append("\t").append(StringEscapeUtils.escapeJson(table_a.getString("table_data"))).append("\t");
-                                sb.append(article_b).append("\t").append(section_b.getString("section")).append("\t");
-                                sb.append(StringEscapeUtils.escapeJson(table_b.getString("caption"))).append("\t").append(StringEscapeUtils.escapeJson(table_b.getString("table_data"))).append("\n");
+                                sb.append(article_a).append("\t").
+                                        append(section_a.getString("section")).append("\t").
+                                        append(StringEscapeUtils.escapeJson(table_a.getString("caption"))).append("\t").
+                                        append(StringEscapeUtils.escapeJson(table_a.getString("table_data"))).append("\t").
+                                        append(article_b).append("\t").
+                                        append(section_b.getString("section")).append("\t").
+                                        append(StringEscapeUtils.escapeJson(table_b.getString("caption"))).append("\t").
+                                        append(StringEscapeUtils.escapeJson(table_b.getString("table_data"))).append("\n");
                             }
                         }
                     }
