@@ -42,6 +42,7 @@ public class TablePrinter {
         Set<String> entities = FileUtils.readIntoSet("finished_entities.txt", "\n", false);
         entities = entities == null ? new HashSet<>() : entities;
         String line;
+        int table_id = 0;
         while ((line = reader.readLine()) != null) {
             JSONObject json = new JSONObject(line);
             String entity = json.getString("entity");
@@ -77,12 +78,14 @@ public class TablePrinter {
                     WikiTable tbl = new WikiTable(table_markup);
 
                     try {
+                        tbl.table_id = table_id;
                         tbl.cleanMarkupTable();
                         tbl.generateWikiTable();
                         tbl.linkCellValues();
 
                         String table_json_output = printTableToJSON(tbl);
                         sb.append(table_json_output);
+                        table_id ++;
                     } catch (Exception e) {
                         FileUtils.saveText(table_markup, "table_print_error.txt", true);
                     }
@@ -105,6 +108,7 @@ public class TablePrinter {
         StringBuffer sb = new StringBuffer();
 
         sb.append("{\"caption\":\"").append(StringEscapeUtils.escapeJson(table.table_caption)).append("\", ");
+        sb.append("\"id\":").append(table.table_id).append(", ");
         sb.append("\"header\":[");
         //first print all the columns, as the table header
         for (int i = 0; i < table.columns.length; i++) {

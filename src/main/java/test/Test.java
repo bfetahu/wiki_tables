@@ -8,28 +8,33 @@ import utils.TableCellUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by besnik on 6/6/17.
  */
 public class Test {
     public static void main(String[] args) throws IOException {
-        String test = FileUtils.readText("/Users/besnik/Desktop/test.txt");
-        WikiTable tbl = new WikiTable(test + "\n|}");
-
-        tbl.cleanMarkupTable();
-        tbl.generateWikiTable();
-        tbl.linkCellValues();
-
-        String tbl_json = TablePrinter.printTableToJSON(tbl);
-        System.out.println(tbl_json);
-
-        System.exit(0);
+//        String test = FileUtils.readText("/Users/besnik/Desktop/test.txt");
+//        WikiTable tbl = new WikiTable(test + "\n|}");
+//
+//        tbl.cleanMarkupTable();
+//        tbl.generateWikiTable();
+//        tbl.linkCellValues();
+//
+//        String tbl_json = TablePrinter.printTableToJSON(tbl);
+//        System.out.println(tbl_json);
+//
+//        System.exit(0);
         BufferedReader reader = FileUtils.getFileReader(args[0]);
         String out_file = args[1];
         TableCellUtils.init();
 
         String line;
+        Map<String, Integer> tbl_ids = new HashMap<>();
+        int table_id = 0;
+
         while ((line = reader.readLine()) != null) {
             try {
                 StringBuffer sb = new StringBuffer();
@@ -40,15 +45,26 @@ public class Test {
                 String caption_a = tmp[2];
 
                 String tbl_markup_a = StringEscapeUtils.unescapeJson(tmp[3]);
+                if(!tbl_ids.containsKey(tbl_markup_a)){
+                    tbl_ids.put(tbl_markup_a, table_id);
+                    table_id ++;
+                }
 
                 String entity_b = tmp[4];
                 String section_b = tmp[5];
                 String caption_b = tmp[6];
 
                 String tbl_markup_b = StringEscapeUtils.unescapeJson(tmp[7]);
+                if(!tbl_ids.containsKey(tbl_markup_b)){
+                    tbl_ids.put(tbl_markup_b, table_id);
+                    table_id ++;
+                }
 
                 WikiTable tbl_a = new WikiTable(tbl_markup_a);
                 WikiTable tbl_b = new WikiTable(tbl_markup_b);
+
+                tbl_a.table_id = tbl_ids.get(tbl_markup_a);
+                tbl_b.table_id = tbl_ids.get(tbl_markup_b);
 
                 tbl_a.cleanMarkupTable();
                 tbl_a.generateWikiTable();

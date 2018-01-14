@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
  * Created by besnik on 5/22/17.
  */
 public class WikiTable implements Serializable {
+    public int table_id;
     //store the column headers for this table
     public WikiColumnHeader[][] columns;
     //store the table rows, where each row consist of a set of cells.
