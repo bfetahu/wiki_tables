@@ -1,10 +1,14 @@
 package datastruct;
 
+import io.FileUtils;
 import representation.CategoryRepresentation;
+import utils.DataUtils;
 
 import java.io.Serializable;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Created by besnik on 12/8/17.
@@ -111,47 +115,86 @@ public class TableCandidateFeatures implements Serializable {
     }
 
     /**
-     * Compute the overlap between categories that are directly associated with the articles.
+     * Compute the category similarity between categories that are directly associated with the articles.
+     * <p>
+     * The similarity is computed between the attributes associated with a specific category and the wieght is computed
+     * as following. For a category c, and attribute p the weight is :
+     * weight(p, c) = \lambda_c / \max\lambda_c_j * \frac{|\cup \langle p, o\rangle|}{|\langle p, o\rangle|}
+     * where \lambda_c is the level of category c, and \max_lambda_c_j is the maximum length (farthest to the root) in
+     * which the property p appears, whereas the fraction consists of the number of unique instantiations of p in c, and
+     * the total number of instantiations of p in c.
      *
      * @param cats
      */
-    public void computeDirectCatRepSimilarity(Map<String, CategoryRepresentation> cats) {
-        Set<CategoryRepresentation> sub_cats_a = cats.values().stream().filter(cat -> article_categories_a.contains(cat.label) && cat.level == max_level_a).collect(Collectors.toSet());
-        Set<CategoryRepresentation> sub_cats_b = cats.values().stream().filter(cat -> article_categories_b.contains(cat.label) && cat.level == max_level_b).collect(Collectors.toSet());
+    public void computeCategoryRepresentationSim(Map<String, CategoryRepresentation> cats, Map<String, Double> max_level_property, String out_dir) {
+        StringBuffer sb_out = new StringBuffer();
+        StringBuffer sb_out_lca = new StringBuffer();
+        for (String cat_a_label : article_categories_a) {
+            CategoryRepresentation cat_a = cats.get(cat_a_label);
+            Map<String, Double> cat_a_rep_weights = DataUtils.computeCategoryPropertyWeights(cat_a, max_level_property);
+            for (String cat_b_label : article_categories_b) {
+                CategoryRepresentation cat_b = cats.get(cat_b_label);
+                double euclidean_sim = 1;
+                if (!cat_a.label.equals(cat_b.label)) {
+                    Map<String, Double> cat_b_rep_weights = DataUtils.computeCategoryPropertyWeights(cat_b, max_level_property);
+                    euclidean_sim = DataUtils.computeEuclideanDistance(cat_a_rep_weights, cat_b_rep_weights);
+                }
 
-        Map<String, Map<String, Integer>> rep_a = new HashMap<>();
+                sb_out.append("DC\t").append(article_a).append("\t").append(article_b).append("\t").
+                        append(cat_a.node_id).append("\t").append(cat_a.level).append("\t").append(cat_a.label).append("\t").
+                        append(cat_b.node_id).append("\t").append(cat_b.level).append("\t").append(cat_b.label).append("\t").
+                        append(euclidean_sim).append("\n");
 
+                //compute the similarity of the directly connected categories with the LCA categories too.
+                computeLCACategoryRepresentationSim(cat_a, cat_b, cat_a_rep_weights, cat_a_rep_weights, cats, max_level_property, sb_out_lca);
+            }
+        }
+
+        FileUtils.saveText(sb_out.toString(), out_dir + "/dca_article_candidate_cat_sim.tsv", true);
+        FileUtils.saveText(sb_out_lca.toString(), out_dir + "/lca_article_candidate_cat_sim.tsv", true);
     }
 
     /**
-     * Aggregate the category representation for a group of children categories.
+     * Compute the similarity between the directly associated categories to the Wikipedia articles, and their
+     * lowest-common-ancestor categories.
      *
-     * @param rep
-     * @param sub_cats
-     * @return
+     * @param cat_a
+     * @param cat_b
+     * @param cat_a_weights
+     * @param cat_b_weights
+     * @param cats
+     * @param min_level_property
+     * @param sb
      */
-    public Map<String, Map<String, Integer>> updateCategoryRepresentation(Map<String, Map<String, Integer>> rep, Set<CategoryRepresentation> sub_cats) {
-        Map<String, Map<String, Integer>> rep_a = new HashMap<>();
-        sub_cats.forEach(cat ->
-                rep.keySet().forEach(key -> {
-                    if (!rep_a.containsKey(key)) {
-                        rep_a.put(key, rep.get(key));
-                        return;
-                    }
-                    Map<String, Integer> sub_rep_a = rep_a.get(key);
-                    Map<String, Integer> sub_rep = rep.get(key);
-                    sub_rep.keySet().forEach(val -> {
-                        if (!sub_rep_a.containsKey(val)) {
-                            sub_rep_a.put(val, sub_rep.get(val));
-                            return;
-                        }
-                        sub_rep_a.put(val, sub_rep.get(val) + sub_rep_a.get(val));
-                    });
-                })
-        );
-        return rep_a;
+    public void computeLCACategoryRepresentationSim(CategoryRepresentation cat_a, CategoryRepresentation cat_b,
+                                                    Map<String, Double> cat_a_weights, Map<String, Double> cat_b_weights,
+                                                    Map<String, CategoryRepresentation> cats, Map<String, Double> min_level_property,
+                                                    StringBuffer sb) {
+        //compute the similarity of the directly related categories with both Wikipedia articles to their LCA categories.
+        for (Set<String> lca : lowest_common_ancestors) {
+            for (String lca_category : lca) {
+                CategoryRepresentation lca_cat = cats.get(lca_category);
+                Map<String, Double> lca_cat_rep_weights = DataUtils.computeCategoryPropertyWeights(lca_cat, min_level_property);
+
+                double euclidean_sim_a = DataUtils.computeEuclideanDistance(cat_a_weights, lca_cat_rep_weights);
+                double euclidean_sim_b = DataUtils.computeEuclideanDistance(cat_b_weights, lca_cat_rep_weights);
+
+                sb.append("LCA\t").append(article_a).append("\t").append(article_b).append("\t").
+                        append(cat_a.node_id).append("\t").append(cat_a.level).append("\t").append(cat_a.label).append("\t").
+                        append(cat_b.node_id).append("\t").append(cat_b.level).append("\t").append(cat_b.label).append("\t").
+                        append(lca_cat.node_id).append("\t").append(lca_cat.level).append("\t").append(lca_cat.label).append("\t").
+                        append(euclidean_sim_a).append("\t").append(euclidean_sim_b).append("\n");
+            }
+        }
     }
 
+
+    /**
+     * For a category print its entity candidates and their corresponding lowest-common-ancestors.
+     *
+     * @param cat
+     * @return
+     */
     public String printCandidates(CategoryRepresentation cat) {
         StringBuffer sb = new StringBuffer();
         sb.append(cat.label).append("\t").append(article_a).append("\t").append(article_b);

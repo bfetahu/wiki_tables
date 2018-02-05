@@ -16,17 +16,6 @@ import java.util.Map;
  */
 public class Test {
     public static void main(String[] args) throws IOException {
-//        String test = FileUtils.readText("/Users/besnik/Desktop/test.txt");
-//        WikiTable tbl = new WikiTable(test + "\n|}");
-//
-//        tbl.cleanMarkupTable();
-//        tbl.generateWikiTable();
-//        tbl.linkCellValues();
-//
-//        String tbl_json = TablePrinter.printTableToJSON(tbl);
-//        System.out.println(tbl_json);
-//
-//        System.exit(0);
         BufferedReader reader = FileUtils.getFileReader(args[0]);
         String out_file = args[1];
         TableCellUtils.init();

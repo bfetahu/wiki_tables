@@ -85,7 +85,7 @@ public class TablePrinter {
 
                         String table_json_output = printTableToJSON(tbl);
                         sb.append(table_json_output);
-                        table_id ++;
+                        table_id++;
                     } catch (Exception e) {
                         FileUtils.saveText(table_markup, "table_print_error.txt", true);
                     }
@@ -108,6 +108,7 @@ public class TablePrinter {
         StringBuffer sb = new StringBuffer();
 
         sb.append("{\"caption\":\"").append(StringEscapeUtils.escapeJson(table.table_caption)).append("\", ");
+        sb.append("\"markup\":\"").append(StringEscapeUtils.escapeJson(table.markup)).append("\",");
         sb.append("\"id\":").append(table.table_id).append(", ");
         sb.append("\"header\":[");
         //first print all the columns, as the table header

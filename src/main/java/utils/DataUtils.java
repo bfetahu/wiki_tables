@@ -1,15 +1,14 @@
 package utils;
 
+import gnu.trove.map.hash.TIntIntHashMap;
+import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
 import org.json.JSONObject;
 import representation.CategoryRepresentation;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,10 +88,10 @@ public class DataUtils {
      * @return
      * @throws IOException
      */
-    public static Map<String, Map<String, Set<String>>> loadEntityAttributes(String entity_attributes_path, Set<String> seed_entities) throws IOException {
+    public static Map<String, Map<String, TIntHashSet>> loadEntityAttributes(String entity_attributes_path, Set<String> seed_entities) throws IOException {
         Set<String> attribute_files = new HashSet<>();
         FileUtils.getFilesList(entity_attributes_path, attribute_files);
-        Map<String, Map<String, Set<String>>> entity_attributes = new HashMap<>();
+        Map<String, Map<String, TIntHashSet>> entity_attributes = new HashMap<>();
 
         for (String file : attribute_files) {
             BufferedReader reader = FileUtils.getFileReader(file);
@@ -106,9 +105,9 @@ public class DataUtils {
 
                 String entity = data[0].trim().intern();
                 String predicate = data[1].intern();
-                String value = data[2];
+                int value = data[2].hashCode();
 
-                if (!seed_entities.isEmpty() && !seed_entities.contains(entity)) {
+                if (seed_entities != null && !seed_entities.isEmpty() && !seed_entities.contains(entity)) {
                     continue;
                 }
 
@@ -117,7 +116,7 @@ public class DataUtils {
                 }
 
                 if (!entity_attributes.get(predicate).containsKey(entity)) {
-                    entity_attributes.get(predicate).put(entity, new HashSet<>());
+                    entity_attributes.get(predicate).put(entity, new TIntHashSet());
                 }
                 entity_attributes.get(predicate).get(entity).add(value);
             }
@@ -191,5 +190,76 @@ public class DataUtils {
                 })
         );
         return entity_cats;
+    }
+
+    /**
+     * Compute the weights for attributes in a category. For a category c, and attribute p the weight is :
+     * weight(p, c) = \lambda_c / \max\lambda_c_j * \frac{|\cup \langle p, o\rangle|}{|\langle p, o\rangle|}
+     * where \lambda_c is the level of category c, and \max_lambda_c_j is the maximum length (closest to the root) in
+     * which the property p appears, whereas the fraction consists of the number of unique instantiations of p in c, and
+     * the total number of instantiations of p in c.
+     *
+     * @param cat
+     * @param min_level_property
+     * @return
+     */
+    public static Map<String, Double> computeCategoryPropertyWeights(CategoryRepresentation cat, Map<String, Double> min_level_property) {
+        Map<String, Double> cat_prop_weight = new HashMap<>();
+
+        Map<String, TIntIntHashMap> cat_rep = cat.cat_representation;
+        for (String prop : cat_rep.keySet()) {
+            int num_values = cat_rep.get(prop).size();
+            double num_assignments = Arrays.stream(cat_rep.get(prop).values()).mapToDouble(x -> x).sum();
+
+            double weight = cat.level / min_level_property.get(prop) * num_values / num_assignments;
+            cat_prop_weight.put(prop, weight);
+        }
+        return cat_prop_weight;
+    }
+
+    /**
+     * Compute the Euclidean distance for any two sets of weights for a given property, weight set.
+     *
+     * @param weights_a
+     * @param weights_b
+     * @return
+     */
+    public static double computeEuclideanDistance(Map<String, Double> weights_a, Map<String, Double> weights_b) {
+        double result = 0.0;
+
+        Set<String> all_keys = weights_a.keySet();
+        all_keys.addAll(weights_b.keySet());
+
+        for (String key : all_keys) {
+            double val_a = weights_a.containsKey(key) ? weights_a.get(key) : 0;
+            double val_b = weights_b.containsKey(key) ? weights_b.get(key) : 0;
+            result += Math.pow(2, val_a - val_b);
+        }
+        return Math.sqrt(result);
+    }
+
+    /**
+     * Compute the deepest level with which an attribute is associated to a category.
+     *
+     * @param cats
+     * @return
+     */
+    public static Map<String, Double> computeMaxLevelAttributeCategory(Map<String, CategoryRepresentation> cats) {
+        Map<String, Double> attribute_max_level = new HashMap<>();
+
+        for (String cat_label : cats.keySet()) {
+            CategoryRepresentation cat = cats.get(cat_label);
+            Set<String> attributes = cat.cat_representation.keySet();
+            double level = cat.level;
+
+            for (String attribute : attributes) {
+                if (!attribute_max_level.containsKey(attribute)) {
+                    attribute_max_level.put(attribute, level);
+                } else if (attribute_max_level.get(attribute) < level) {
+                    attribute_max_level.put(attribute, level);
+                }
+            }
+        }
+        return attribute_max_level;
     }
 }

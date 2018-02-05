@@ -4,6 +4,7 @@ import datastruct.TableCandidateFeatures;
 import io.FileUtils;
 import utils.DataUtils;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -139,7 +140,8 @@ public class ArticleCandidates {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "", option = "";
+        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "", option = "",
+                article_attributes = "", article_candidates = "";
         Set<String> seed_entities = new HashSet<>();
 
         for (int i = 0; i < args.length; i++) {
@@ -155,6 +157,10 @@ public class ArticleCandidates {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             } else if (args[i].equals("-option")) {
                 option = args[++i];
+            } else if (args[i].equals("-article_candidates")) {
+                article_candidates = args[++i];
+            } else if (args[i].equals("-article_attributes")) {
+                article_attributes = args[++i];
             }
         }
 
@@ -163,7 +169,7 @@ public class ArticleCandidates {
         if (option.equals("candidates")) {
             ac.generateCandidates(seed_entities, out_dir, article_cats);
         } else if (option.equals("scoring")) {
-
+            ac.scoreTableCandidates(article_cats, article_candidates, article_attributes, out_dir, seed_entities);
         }
     }
 
@@ -171,22 +177,62 @@ public class ArticleCandidates {
      * Score the generated article candidates for table alignment, based on their similarity on the category representations,
      * distance to the lowest common ancestor between the two categories.
      *
-     * @param cat_rep_path
+     * @param article_categories
+     * @param article_candidates
      * @param out_dir
      */
-    public void scoreTableCandidates(String cat_rep_path, String out_dir) {
-        Map<String, Map<String, Map<String, Integer>>> cat_reps = (Map<String, Map<String, Map<String, Integer>>>) FileUtils.readObject(cat_rep_path);
-        cat_to_map.keySet().forEach(cat_label -> cat_to_map.get(cat_label).cat_representation = cat_reps.get(cat_label));
+    public void scoreTableCandidates(String article_categories, String article_candidates, String article_attributes, String out_dir, Set<String> seed_entities) throws IOException {
+        if (FileUtils.fileExists(out_dir + "/full_category_representation.obj", false)) {
+            root_category = (CategoryRepresentation) FileUtils.readObject(out_dir + "/full_category_representation.obj");
+        } else {
+            CategoryRepresentation.constructCategoryRepresentation(root_category, article_categories, article_attributes, seed_entities);
+            FileUtils.saveObject(root_category, out_dir + "/full_category_representation.obj");
+        }
 
-        //take the immediate children from the root category to read the article candidates.
-        List<Map.Entry<Integer, String>> child_cats = root_category.children.values().stream().map(cat -> new AbstractMap.SimpleEntry<>(cat.node_id, cat.label)).collect(Collectors.toList());
+        //load the entity candidates for each entity across categories or for a specific sample.
+        Set<String> files = new HashSet<>();
+        FileUtils.getFilesList(article_candidates, files);
 
-        for (Map.Entry<Integer, String> cat_entry : child_cats) {
-            String out_file = out_dir + "/" + cat_entry.getKey() + ".gz";
-            List<TableCandidateFeatures> candidates = (List<TableCandidateFeatures>) FileUtils.readObject(out_file);
+        //load the article categories
+        Map<String, Set<String>> cats_entities = DataUtils.readCategoryMappingsWiki(article_categories, seed_entities);
+        Map<String, Set<String>> entity_cats = DataUtils.getArticleCategories(cats_entities);
 
-            for (TableCandidateFeatures candidate : candidates) {
+        //set num entities for each category.
+        DataUtils.updateCatsWithEntities(root_category, cats_entities);
 
+        System.out.println("There are " + cat_to_map.size() + " categories.");
+        //compute the attribute category max level association
+        Map<String, Double> attribute_max_level_category = DataUtils.computeMaxLevelAttributeCategory(cat_to_map);
+
+        // the format of the article candidates are the following
+        for (String file : files) {
+            BufferedReader reader = FileUtils.getFileReader(file);
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                String[] data = line.split("\t");
+
+                String article_a = data[1];
+                String article_b = data[2];
+
+                List<Set<String>> lca_cats = new ArrayList<>();
+                for (int i = 3; i < data.length; i++) {
+                    Set<String> tmp_cats = new HashSet<>(Arrays.asList(data[i].replaceAll("\\[|\\]", "").split(", ")));
+                    lca_cats.add(tmp_cats);
+                }
+
+                try {
+                    TableCandidateFeatures tc = new TableCandidateFeatures(article_a, article_b);
+                    tc.lowest_common_ancestors = lca_cats;
+                    tc.setArticleBCategories(entity_cats.get(article_b), cat_to_map);
+                    tc.setArticleACategories(entity_cats.get(article_a), cat_to_map);
+
+                    tc.computeCategoryRepresentationSim(cat_to_map, attribute_max_level_category, out_dir);
+
+                    System.out.printf("Finished computing distance between %s and %s.\n", article_a, article_b);
+                } catch (Exception e) {
+                    System.out.println("Exception for line " + line + " with message " + e.getMessage());
+                }
             }
         }
     }

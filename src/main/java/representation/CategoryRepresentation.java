@@ -1,5 +1,6 @@
 package representation;
 
+import gnu.trove.map.hash.TIntIntHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
 import org.apache.commons.compress.compressors.CompressorException;
@@ -30,7 +31,7 @@ public class CategoryRepresentation implements Serializable {
     public TIntHashSet paths;
 
     //generate first the attribute representation for each category and store it
-    public Map<String, Map<String, Integer>> cat_representation;
+    public Map<String, TIntIntHashMap> cat_representation;
 
     //store the number of entities belonging to this category
     public int num_entities = 0;
@@ -395,25 +396,11 @@ public class CategoryRepresentation implements Serializable {
         CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
 
         if (option.equals("representation")) {
-            Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, seed_entities);
-            System.out.println("Finished reading category to article mappings for " + entity_categories.size() + " entities.");
-
-            //set num entities for each category.
-            Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, entity_categories);
-
-            //load the attributes for each entity
-            Map<String, Map<String, Set<String>>> entity_attributes = DataUtils.loadEntityAttributes(entity_attributes_path, seed_entities);
-            System.out.println("Finished reading entity attributes.");
-
-            //for each category, based on a bottom up approach, generate the attribute representation
-            cat.getCategoryAttributeRepresentation(entity_categories, entity_attributes);
-            cat.aggregateCategoryRepresentation();
+            Map<String, CategoryRepresentation> cats = constructCategoryRepresentation(cat, entity_categories_path, entity_attributes_path, seed_entities);
 
             //save the generated category representation
-            Map<String, Map<String, Map<String, Integer>>> cat_reps = new HashMap<>();
-            cats.keySet().forEach(category -> {
-                cat_reps.put(category, cats.get(category).cat_representation);
-            });
+            Map<String, Map<String, TIntIntHashMap>> cat_reps = new HashMap<>();
+            cats.keySet().forEach(category -> cat_reps.put(category, cats.get(category).cat_representation));
 
             FileUtils.saveObject(cat_reps, out_dir + "/category_hierarchy_representation.obj");
             //save also the textual representation for debugging
@@ -433,6 +420,36 @@ public class CategoryRepresentation implements Serializable {
             FileUtils.saveText(sb.toString(), cat_hierarchy_file, true);
 
         }
+    }
+
+    /**
+     * Compute the category representation for a given set of entities.
+     *
+     * @param cat
+     * @param entity_categories_path
+     * @param entity_attributes_path
+     * @param seed_entities
+     * @throws IOException
+     */
+    public static Map<String, CategoryRepresentation> constructCategoryRepresentation(CategoryRepresentation cat, String entity_categories_path, String entity_attributes_path, Set<String> seed_entities) throws IOException {
+        Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, seed_entities);
+        System.out.println("Finished reading category to article mappings for " + entity_categories.size() + " entities.");
+
+        //set num entities for each category.
+        Map<String, CategoryRepresentation> cats = DataUtils.updateCatsWithEntities(cat, entity_categories);
+
+        //load the attributes for each entity
+        Map<String, Map<String, TIntHashSet>> entity_attributes = DataUtils.loadEntityAttributes(entity_attributes_path, seed_entities);
+        System.out.println("Finished reading entity attributes.");
+
+        //for each category, based on a bottom up approach, generate the attribute representation
+        cat.getCategoryAttributeRepresentation(entity_categories, entity_attributes);
+        System.out.println("Finished processing the entity-category attributes.");
+
+        cat.aggregateCategoryRepresentation();
+
+        System.out.println("Finished aggregating the entity-category attributes.");
+        return cats;
     }
 
     /**
@@ -464,11 +481,11 @@ public class CategoryRepresentation implements Serializable {
      * @param entity_attributes
      * @return
      */
-    public void getCategoryAttributeRepresentation(Map<String, Set<String>> entity_categories, Map<String, Map<String, Set<String>>> entity_attributes) {
+    public void getCategoryAttributeRepresentation(Map<String, Set<String>> entity_categories, Map<String, Map<String, TIntHashSet>> entity_attributes) {
         if (children != null && !children.isEmpty()) {
-            for (String child_label : children.keySet()) {
+            children.keySet().parallelStream().forEach(child_label -> {
                 children.get(child_label).getCategoryAttributeRepresentation(entity_categories, entity_attributes);
-            }
+            });
         }
         //get the entities of the following category
         Set<String> entities = entity_categories.get(label);
@@ -482,13 +499,13 @@ public class CategoryRepresentation implements Serializable {
                     continue;
                 }
 
-                Map<String, Set<String>> attribute_values = entity_attributes.get(attribute);
+                Map<String, TIntHashSet> attribute_values = entity_attributes.get(attribute);
 
                 if (!cat_representation.containsKey(attribute)) {
-                    cat_representation.put(attribute, new HashMap<>());
+                    cat_representation.put(attribute, new TIntIntHashMap());
                 }
 
-                for (String value : attribute_values.get(entity)) {
+                for (int value : attribute_values.get(entity).toArray()) {
                     int count = cat_representation.get(attribute).containsKey(value) ? cat_representation.get(attribute).get(value) : 0;
                     cat_representation.get(attribute).put(value, count + 1);
                 }
@@ -525,13 +542,13 @@ public class CategoryRepresentation implements Serializable {
         if (cat_parent.cat_representation.isEmpty()) {
             cat_parent.cat_representation.putAll(cat_child.cat_representation);
         } else {
-            Map<String, Map<String, Integer>> child_cat_representation = cat_child.cat_representation;
+            Map<String, TIntIntHashMap> child_cat_representation = cat_child.cat_representation;
             for (String key : child_cat_representation.keySet()) {
                 if (!cat_representation.containsKey(key)) {
-                    cat_representation.put(key, new HashMap<>());
+                    cat_representation.put(key, new TIntIntHashMap());
                 }
 
-                for (String sub_key : child_cat_representation.get(key).keySet()) {
+                for (int sub_key : child_cat_representation.get(key).keys()) {
                     if (!cat_representation.get(key).containsKey(sub_key)) {
                         cat_representation.get(key).put(sub_key, 0);
                     }
@@ -556,7 +573,7 @@ public class CategoryRepresentation implements Serializable {
         sb.append(label).append("\t").append(num_entities).append("\t").append(total_attributes);
         for (String attribute : cat_representation.keySet()) {
             int num_values = cat_representation.get(attribute).size();
-            int num_assignments = cat_representation.get(attribute).values().stream().mapToInt(x -> x).sum();
+            int num_assignments = (int) Arrays.stream(cat_representation.get(attribute).values()).mapToDouble(x -> x).sum();
 
             sb.append("\t").append(attribute).append("=").append(num_values).append(";").append(num_assignments);
         }
