@@ -392,10 +392,10 @@ public class CategoryRepresentation implements Serializable {
             }
         }
 
-        System.out.println("Read Category Graph...");
-        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
-
         if (option.equals("representation")) {
+            System.out.println("Read Category Graph...");
+            CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
+
             Map<String, CategoryRepresentation> cats = constructCategoryRepresentation(cat, entity_categories_path, entity_attributes_path, seed_entities);
 
             //save the generated category representation
@@ -406,6 +406,9 @@ public class CategoryRepresentation implements Serializable {
             //save also the textual representation for debugging
             cat.saveCategoryRepresentation(out_dir + "/category_hierarchy_representation.txt");
         } else if (option.equals("cat_utils")) {
+            System.out.println("Read Category Graph...");
+            CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(category_path);
+
             Map<String, Set<String>> entity_categories = DataUtils.readCategoryMappingsWiki(entity_categories_path, seed_entities);
             System.out.println("Finished reading category to article mappings...");
             DataUtils.updateCatsWithEntities(cat, entity_categories);
@@ -419,6 +422,27 @@ public class CategoryRepresentation implements Serializable {
             cat.printCategories(cat_hierarchy_file, sb);
             FileUtils.saveText(sb.toString(), cat_hierarchy_file, true);
 
+        } else if (option.equals("representation_object")) {
+            System.out.println("Read Category Graph...");
+            CategoryRepresentation cat = null;
+
+            if (!FileUtils.fileExists(out_dir + "/full_category_representation.obj", false)) {
+                CategoryRepresentation.constructCategoryRepresentation(cat, entity_categories_path, entity_attributes_path, seed_entities);
+                FileUtils.saveObject(cat, out_dir + "/full_category_representation.obj");
+            } else {
+                cat = (CategoryRepresentation) FileUtils.readObject(out_dir + "/full_category_representation.obj");
+            }
+
+            //if its not already written in text, write it too
+            if (!FileUtils.fileExists(out_dir + "/full_category_representation.txt", false)) {
+                cat.saveCategoryRepresentation(out_dir + "/full_category_representation.txt");
+            }
+
+
+            //write only the category representation  since it takes less space.
+            if (!FileUtils.fileExists(out_dir + "/full_category_representation_simplified.obj", false)) {
+                FileUtils.saveObject(cat.cat_representation, out_dir + "/full_category_representation_simplified.obj");
+            }
         }
     }
 

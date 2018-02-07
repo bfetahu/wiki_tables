@@ -1,12 +1,12 @@
 package datastruct;
 
+import gnu.trove.map.hash.TIntDoubleHashMap;
 import io.FileUtils;
 import representation.CategoryRepresentation;
 import utils.DataUtils;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -23,10 +23,10 @@ public class TableCandidateFeatures implements Serializable {
     private Set<String> article_categories_a;
     private Set<String> article_categories_b;
 
-    public List<Set<String>> lowest_common_ancestors;
+    public Set<String> lowest_common_ancestors;
 
     public TableCandidateFeatures(String article_a, String article_b) {
-        lowest_common_ancestors = new ArrayList<>();
+        lowest_common_ancestors = new HashSet<>();
         this.article_a = article_a;
         this.article_b = article_b;
     }
@@ -126,27 +126,32 @@ public class TableCandidateFeatures implements Serializable {
      *
      * @param cats
      */
-    public void computeCategoryRepresentationSim(Map<String, CategoryRepresentation> cats, Map<String, Double> max_level_property, String out_dir) {
+    public void computeCategoryRepresentationSim(Map<String, CategoryRepresentation> cats, Map<String, TIntDoubleHashMap> cat_weights, String out_dir) {
         StringBuffer sb_out = new StringBuffer();
         StringBuffer sb_out_lca = new StringBuffer();
         for (String cat_a_label : article_categories_a) {
             CategoryRepresentation cat_a = cats.get(cat_a_label);
-            Map<String, Double> cat_a_rep_weights = DataUtils.computeCategoryPropertyWeights(cat_a, max_level_property);
+            if (!cat_weights.containsKey(cat_a_label)) {
+                continue;
+            }
+            TIntDoubleHashMap cat_a_rep_weights = cat_weights.get(cat_a_label);
             for (String cat_b_label : article_categories_b) {
-                CategoryRepresentation cat_b = cats.get(cat_b_label);
-                double euclidean_sim = 1;
-                if (!cat_a.label.equals(cat_b.label)) {
-                    Map<String, Double> cat_b_rep_weights = DataUtils.computeCategoryPropertyWeights(cat_b, max_level_property);
-                    euclidean_sim = DataUtils.computeEuclideanDistance(cat_a_rep_weights, cat_b_rep_weights);
+                if (!cat_weights.containsKey(cat_b_label)) {
+                    continue;
                 }
+                CategoryRepresentation cat_b = cats.get(cat_b_label);
+                if (!cat_a_label.equals(cat_b_label)) {
+                    TIntDoubleHashMap cat_b_rep_weights = cat_weights.get(cat_a_label);
+                    double euclidean_sim = DataUtils.computeEuclideanDistance(cat_a_rep_weights, cat_b_rep_weights);
 
-                sb_out.append("DC\t").append(article_a).append("\t").append(article_b).append("\t").
-                        append(cat_a.node_id).append("\t").append(cat_a.level).append("\t").append(cat_a.label).append("\t").
-                        append(cat_b.node_id).append("\t").append(cat_b.level).append("\t").append(cat_b.label).append("\t").
-                        append(euclidean_sim).append("\n");
+                    sb_out.append("DC\t").append(article_a).append("\t").append(article_b).append("\t").
+                            append(cat_a.node_id).append("\t").append(cat_a.level).append("\t").append(cat_a.label).append("\t").
+                            append(cat_b.node_id).append("\t").append(cat_b.level).append("\t").append(cat_b.label).append("\t").
+                            append(euclidean_sim).append("\n");
 
-                //compute the similarity of the directly connected categories with the LCA categories too.
-                computeLCACategoryRepresentationSim(cat_a, cat_b, cat_a_rep_weights, cat_a_rep_weights, cats, max_level_property, sb_out_lca);
+                    //compute the similarity of the directly connected categories with the LCA categories too.
+                    computeLCACategoryRepresentationSim(cat_a, cat_b, cat_a_rep_weights, cat_b_rep_weights, cats, cat_weights, sb_out_lca);
+                }
             }
         }
 
@@ -163,28 +168,29 @@ public class TableCandidateFeatures implements Serializable {
      * @param cat_a_weights
      * @param cat_b_weights
      * @param cats
-     * @param min_level_property
+     * @param cat_weights
      * @param sb
      */
     public void computeLCACategoryRepresentationSim(CategoryRepresentation cat_a, CategoryRepresentation cat_b,
-                                                    Map<String, Double> cat_a_weights, Map<String, Double> cat_b_weights,
-                                                    Map<String, CategoryRepresentation> cats, Map<String, Double> min_level_property,
+                                                    TIntDoubleHashMap cat_a_weights, TIntDoubleHashMap cat_b_weights,
+                                                    Map<String, CategoryRepresentation> cats, Map<String, TIntDoubleHashMap> cat_weights,
                                                     StringBuffer sb) {
         //compute the similarity of the directly related categories with both Wikipedia articles to their LCA categories.
-        for (Set<String> lca : lowest_common_ancestors) {
-            for (String lca_category : lca) {
-                CategoryRepresentation lca_cat = cats.get(lca_category);
-                Map<String, Double> lca_cat_rep_weights = DataUtils.computeCategoryPropertyWeights(lca_cat, min_level_property);
-
-                double euclidean_sim_a = DataUtils.computeEuclideanDistance(cat_a_weights, lca_cat_rep_weights);
-                double euclidean_sim_b = DataUtils.computeEuclideanDistance(cat_b_weights, lca_cat_rep_weights);
-
-                sb.append("LCA\t").append(article_a).append("\t").append(article_b).append("\t").
-                        append(cat_a.node_id).append("\t").append(cat_a.level).append("\t").append(cat_a.label).append("\t").
-                        append(cat_b.node_id).append("\t").append(cat_b.level).append("\t").append(cat_b.label).append("\t").
-                        append(lca_cat.node_id).append("\t").append(lca_cat.level).append("\t").append(lca_cat.label).append("\t").
-                        append(euclidean_sim_a).append("\t").append(euclidean_sim_b).append("\n");
+        for (String lca_category : lowest_common_ancestors) {
+            if (!cats.containsKey(lca_category)) {
+                continue;
             }
+            CategoryRepresentation lca_cat = cats.get(lca_category);
+            TIntDoubleHashMap lca_cat_rep_weights = cat_weights.get(lca_category);
+
+            double euclidean_sim_a = DataUtils.computeEuclideanDistance(cat_a_weights, lca_cat_rep_weights);
+            double euclidean_sim_b = DataUtils.computeEuclideanDistance(cat_b_weights, lca_cat_rep_weights);
+
+            sb.append("LCA\t").append(article_a).append("\t").append(article_b).append("\t").
+                    append(cat_a.node_id).append("\t").append(cat_a.level).append("\t").append(cat_a.label).append("\t").
+                    append(cat_b.node_id).append("\t").append(cat_b.level).append("\t").append(cat_b.label).append("\t").
+                    append(lca_cat.node_id).append("\t").append(lca_cat.level).append("\t").append(lca_cat.label).append("\t").
+                    append(euclidean_sim_a).append("\t").append(euclidean_sim_b).append("\n");
         }
     }
 
@@ -199,8 +205,8 @@ public class TableCandidateFeatures implements Serializable {
         StringBuffer sb = new StringBuffer();
         sb.append(cat.label).append("\t").append(article_a).append("\t").append(article_b);
 
-        for (Set<String> ancestors : lowest_common_ancestors) {
-            sb.append("\t").append(ancestors.toString());
+        for (String ancestors : lowest_common_ancestors) {
+            sb.append("\t").append(ancestors);
         }
 
         return sb.toString();

@@ -1,5 +1,6 @@
 package utils;
 
+import gnu.trove.map.hash.TIntDoubleHashMap;
 import gnu.trove.map.hash.TIntIntHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
@@ -203,8 +204,8 @@ public class DataUtils {
      * @param min_level_property
      * @return
      */
-    public static Map<String, Double> computeCategoryPropertyWeights(CategoryRepresentation cat, Map<String, Double> min_level_property) {
-        Map<String, Double> cat_prop_weight = new HashMap<>();
+    public static TIntDoubleHashMap computeCategoryPropertyWeights(CategoryRepresentation cat, Map<String, Double> min_level_property) {
+        TIntDoubleHashMap cat_prop_weight = new TIntDoubleHashMap();
 
         Map<String, TIntIntHashMap> cat_rep = cat.cat_representation;
         for (String prop : cat_rep.keySet()) {
@@ -212,7 +213,7 @@ public class DataUtils {
             double num_assignments = Arrays.stream(cat_rep.get(prop).values()).mapToDouble(x -> x).sum();
 
             double weight = cat.level / min_level_property.get(prop) * num_values / num_assignments;
-            cat_prop_weight.put(prop, weight);
+            cat_prop_weight.put(prop.hashCode(), weight);
         }
         return cat_prop_weight;
     }
@@ -224,15 +225,18 @@ public class DataUtils {
      * @param weights_b
      * @return
      */
-    public static double computeEuclideanDistance(Map<String, Double> weights_a, Map<String, Double> weights_b) {
+    public static double computeEuclideanDistance(TIntDoubleHashMap weights_a, TIntDoubleHashMap weights_b) {
         double result = 0.0;
+        if (weights_a.isEmpty() || weights_b.isEmpty()) {
+            return Double.MAX_VALUE;
+        }
 
-        Set<String> all_keys = weights_a.keySet();
+        TIntHashSet all_keys = new TIntHashSet(weights_a.keySet());
         all_keys.addAll(weights_b.keySet());
 
-        for (String key : all_keys) {
-            double val_a = weights_a.containsKey(key) ? weights_a.get(key) : 0;
-            double val_b = weights_b.containsKey(key) ? weights_b.get(key) : 0;
+        for (int key : all_keys.toArray()) {
+            double val_a = weights_a.containsKey(key) ? weights_a.get(key) : 0.0;
+            double val_b = weights_b.containsKey(key) ? weights_b.get(key) : 0.0;
             result += Math.pow(2, val_a - val_b);
         }
         return Math.sqrt(result);
