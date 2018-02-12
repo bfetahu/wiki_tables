@@ -142,11 +142,13 @@ public class TableCandidateFeatures implements Serializable {
                 CategoryRepresentation cat_b = cats.get(cat_b_label);
                 if (!cat_a_label.equals(cat_b_label)) {
                     TIntDoubleHashMap cat_b_rep_weights = cat_weights.get(cat_a_label);
+                    if (cat_a_rep_weights.isEmpty() || cat_b_rep_weights.isEmpty()) {
+                        continue;
+                    }
                     double euclidean_sim = DataUtils.computeEuclideanDistance(cat_a_rep_weights, cat_b_rep_weights);
 
                     sb_out.append(article_a).append("\t").append(article_b).append("\t").
-                            append(cat_a.level).append("\t").append(cat_a.label).append("\t").
-                            append(cat_b.level).append("\t").append(cat_b.label).append("\t").
+                            append(cat_a.label).append("\t").append(cat_b.label).append("\t").
                             append(euclidean_sim).append("\n");
 
                     //compute the similarity of the directly connected categories with the LCA categories too.
@@ -183,14 +185,16 @@ public class TableCandidateFeatures implements Serializable {
             CategoryRepresentation lca_cat = cats.get(lca_category);
             TIntDoubleHashMap lca_cat_rep_weights = cat_weights.get(lca_category);
 
+            if (cat_a_weights.isEmpty() || lca_cat_rep_weights.isEmpty() || cat_b_weights.isEmpty()) {
+                continue;
+            }
+
             double euclidean_sim_a = DataUtils.computeEuclideanDistance(cat_a_weights, lca_cat_rep_weights);
             double euclidean_sim_b = DataUtils.computeEuclideanDistance(cat_b_weights, lca_cat_rep_weights);
 
             sb.append(article_a).append("\t").append(article_b).append("\t").
-                    append(cat_a.level).append("\t").append(cat_a.label).append("\t").
-                    append(cat_b.level).append("\t").append(cat_b.label).append("\t").
-                    append(lca_cat.level).append("\t").append(lca_cat.label).append("\t").
-                    append(euclidean_sim_a).append("\t").append(euclidean_sim_b).append("\n");
+                    append(cat_a.label).append("\t").append(cat_b.label).append("\t").
+                    append(lca_cat.label).append("\t").append(euclidean_sim_a).append("\t").append(euclidean_sim_b).append("\n");
         }
     }
 

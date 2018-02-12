@@ -144,6 +144,7 @@ public class ArticleCandidates {
         String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "", option = "",
                 article_candidates = "";
         Set<String> seed_entities = new HashSet<>();
+        Set<String> filter_entities = new HashSet<>();
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-cat_rep")) {
@@ -156,6 +157,8 @@ public class ArticleCandidates {
                 article_cats = args[++i];
             } else if (args[i].equals("-seed_entities")) {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
+            } else if (args[i].equals("-filter_entities")) {
+                filter_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             } else if (args[i].equals("-option")) {
                 option = args[++i];
             } else if (args[i].equals("-article_candidates")) {
@@ -174,7 +177,7 @@ public class ArticleCandidates {
         if (option.equals("candidates")) {
             ac.generateCandidates(seed_entities, out_dir, article_cats);
         } else if (option.equals("scoring")) {
-            ac.scoreTableCandidates(article_cats, article_candidates, out_dir, seed_entities);
+            ac.scoreTableCandidates(article_cats, article_candidates, out_dir, seed_entities, filter_entities);
         }
     }
 
@@ -186,7 +189,7 @@ public class ArticleCandidates {
      * @param article_candidates
      * @param out_dir
      */
-    public void scoreTableCandidates(String article_categories, String article_candidates, String out_dir, Set<String> seed_entities) throws IOException {
+    public void scoreTableCandidates(String article_categories, String article_candidates, String out_dir, Set<String> seed_entities, Set<String> filter_entities) throws IOException {
         //load the entity candidates for each entity across categories or for a specific sample.
         Set<String> files = new HashSet<>();
         FileUtils.getFilesList(article_candidates, files);
@@ -215,6 +218,9 @@ public class ArticleCandidates {
                     lines_to_process.parallelStream().forEach(data_line -> {
                         try {
                             TableCandidateFeatures tc = loadTableCandidates(data_line, entity_cats);
+                            if (!filter_entities.contains(tc.getArticleA())) {
+                                return;
+                            }
                             tc.computeCategoryRepresentationSim(cat_to_map, cat_weights, out_dir);
 
                             System.out.printf("Finished computing distance between %s and %s.\n", tc.getArticleA(), tc.getArticleB());
