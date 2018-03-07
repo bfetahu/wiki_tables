@@ -1,0 +1,39 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/3.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/3.0.0 http://maven.apache.org/xsd/assembly-3.0.0.xsd">
+    <!-- TODO: a jarjar format would be better -->
+    <id>hdp</id>
+
+    <formats>
+        <format>jar</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>/</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <unpack>true</unpack>
+            <scope>runtime</scope>
+            <excludes>
+                <exclude>org.apache.hadoop:*</exclude>
+                <exclude>org.springframework:*</exclude>
+                <exclude>commons-httpclient:commons-httpclient</exclude>
+                <exclude>javax.validation:validation-api</exclude>
+                <exclude>velocity:velocity</exclude>
+                <exclude>oro:oro</exclude>
+                <exclude>tomcat:jasper-compiler</exclude>
+                <exclude>tomcat:jasper-runtime</exclude>
+                <exclude>org.codehaus.jackson:*</exclude>
+            </excludes>
+        </dependencySet>
+    </dependencySets>
+    <fileSets>
+        <fileSet>
+            <directory>target/classes</directory>
+            <outputDirectory>/</outputDirectory>
+            <includes>
+                <include>**/*</include>
+            </includes>
+        </fileSet>
+    </fileSets>
+</assembly>

@@ -5,13 +5,13 @@ import gnu.trove.map.hash.TIntDoubleHashMap;
 import io.FileUtils;
 import utils.DataUtils;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
+ * Compute the relatedness between Wikipedia articles based on their category representation.
  * Created by besnik on 12/6/17.
  */
 public class ArticleCandidates {
@@ -141,8 +141,7 @@ public class ArticleCandidates {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "", option = "",
-                article_candidates = "";
+        String cat_rep_path = "", out_dir = "", article_cats = "", category_path = "", option = "";
         Set<String> seed_entities = new HashSet<>();
         Set<String> filter_entities = new HashSet<>();
 
@@ -161,8 +160,6 @@ public class ArticleCandidates {
                 filter_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             } else if (args[i].equals("-option")) {
                 option = args[++i];
-            } else if (args[i].equals("-article_candidates")) {
-                article_candidates = args[++i];
             }
         }
 
@@ -177,7 +174,7 @@ public class ArticleCandidates {
         if (option.equals("candidates")) {
             ac.generateCandidates(seed_entities, out_dir, article_cats);
         } else if (option.equals("scoring")) {
-            ac.scoreTableCandidates(article_cats, article_candidates, out_dir, seed_entities, filter_entities);
+            ac.scoreTableCandidates(article_cats, out_dir, seed_entities, filter_entities);
         }
     }
 
@@ -186,14 +183,9 @@ public class ArticleCandidates {
      * distance to the lowest common ancestor between the two categories.
      *
      * @param article_categories
-     * @param article_candidates
      * @param out_dir
      */
-    public void scoreTableCandidates(String article_categories, String article_candidates, String out_dir, Set<String> seed_entities, Set<String> filter_entities) throws IOException {
-        //load the entity candidates for each entity across categories or for a specific sample.
-        Set<String> files = new HashSet<>();
-        FileUtils.getFilesList(article_candidates, files);
-
+    public void scoreTableCandidates(String article_categories, String out_dir, Set<String> seed_entities, Set<String> filter_entities) throws IOException {
         //load the article categories
         Map<String, Set<String>> cats_entities = DataUtils.readCategoryMappingsWiki(article_categories, seed_entities);
         Map<String, Set<String>> entity_cats = DataUtils.getArticleCategories(cats_entities);
@@ -205,32 +197,28 @@ public class ArticleCandidates {
         Map<String, TIntDoubleHashMap> cat_weights = computeCategoryAttributeWeights(attribute_max_level_category);
 
         // the format of the article candidates are the following
-        for (String file : files) {
-            BufferedReader reader = FileUtils.getFileReader(file);
-            String line;
+        for (String entity_a : seed_entities) {
+            List<String> out_lines = new Stack<>();
+            filter_entities.parallelStream().forEach(entity_b -> {
+                if (!entity_cats.containsKey(entity_a) || !entity_cats.containsKey(entity_b)) {
+                    return;
+                }
+                TableCandidateFeatures tc = loadTableCandidates(entity_a, entity_b, entity_cats);
+                tc.computeCategoryRepresentationSim(cat_to_map, cat_weights, false, out_lines);
+                System.out.printf("Finished computing distance between %s and %s.\n", tc.getArticleA(), tc.getArticleB());
+            });
 
-            List<String> lines_to_process = new ArrayList<>();
 
-            while ((line = reader.readLine()) != null) {
-                lines_to_process.add(line);
-                if (lines_to_process.size() % 10000 == 0) {
-                    //process the data in parallel
-                    lines_to_process.parallelStream().forEach(data_line -> {
-                        try {
-                            TableCandidateFeatures tc = loadTableCandidates(data_line, entity_cats);
-                            if (!filter_entities.contains(tc.getArticleA())) {
-                                return;
-                            }
-                            tc.computeCategoryRepresentationSim(cat_to_map, cat_weights, out_dir);
-
-                            System.out.printf("Finished computing distance between %s and %s.\n", tc.getArticleA(), tc.getArticleB());
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    });
-                    lines_to_process.clear();
+            //output the processed lines
+            StringBuffer sb = new StringBuffer();
+            for (String line : out_lines) {
+                sb.append(line);
+                if (sb.length() > 100000) {
+                    FileUtils.saveText(sb.toString(), out_dir + "/dca_article_candidate_cat_sim.tsv", true);
+                    sb.delete(0, sb.length());
                 }
             }
+            FileUtils.saveText(sb.toString(), out_dir + "/dca_article_candidate_cat_sim.tsv", true);
         }
     }
 
@@ -271,6 +259,22 @@ public class ArticleCandidates {
 
         TableCandidateFeatures tc = new TableCandidateFeatures(article_a, article_b);
         tc.lowest_common_ancestors = lca_cats;
+        tc.setArticleBCategories(entity_cats.get(article_b), cat_to_map);
+        tc.setArticleACategories(entity_cats.get(article_a), cat_to_map);
+
+        return tc;
+    }
+
+    /**
+     * Construct from a line the table candidate features.
+     *
+     * @param article_a
+     * @param article_b
+     * @param entity_cats
+     * @return
+     */
+    public TableCandidateFeatures loadTableCandidates(String article_a, String article_b, Map<String, Set<String>> entity_cats) {
+        TableCandidateFeatures tc = new TableCandidateFeatures(article_a, article_b);
         tc.setArticleBCategories(entity_cats.get(article_b), cat_to_map);
         tc.setArticleACategories(entity_cats.get(article_a), cat_to_map);
 

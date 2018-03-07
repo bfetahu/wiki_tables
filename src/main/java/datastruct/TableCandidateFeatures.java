@@ -7,6 +7,7 @@ import utils.DataUtils;
 
 import java.io.Serializable;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -126,7 +127,7 @@ public class TableCandidateFeatures implements Serializable {
      *
      * @param cats
      */
-    public void computeCategoryRepresentationSim(Map<String, CategoryRepresentation> cats, Map<String, TIntDoubleHashMap> cat_weights, String out_dir) {
+    public void computeCategoryRepresentationSim(Map<String, CategoryRepresentation> cats, Map<String, TIntDoubleHashMap> cat_weights, boolean isLCA, List<String> out_lines) {
         StringBuffer sb_out = new StringBuffer();
         StringBuffer sb_out_lca = new StringBuffer();
         for (String cat_a_label : article_categories_a) {
@@ -150,15 +151,18 @@ public class TableCandidateFeatures implements Serializable {
                     sb_out.append(article_a).append("\t").append(article_b).append("\t").
                             append(cat_a.label).append("\t").append(cat_b.label).append("\t").
                             append(euclidean_sim).append("\n");
+                    out_lines.add(sb_out.toString());
 
                     //compute the similarity of the directly connected categories with the LCA categories too.
-                    computeLCACategoryRepresentationSim(cat_a, cat_b, cat_a_rep_weights, cat_b_rep_weights, cats, cat_weights, sb_out_lca);
+                    if (isLCA)
+                        computeLCACategoryRepresentationSim(cat_a, cat_b, cat_a_rep_weights, cat_b_rep_weights, cats, cat_weights, sb_out_lca);
                 }
             }
         }
 
-        FileUtils.saveText(sb_out.toString(), out_dir + "/dca_article_candidate_cat_sim.tsv", true);
-        FileUtils.saveText(sb_out_lca.toString(), out_dir + "/lca_article_candidate_cat_sim.tsv", true);
+//        FileUtils.saveText(sb_out.toString(), out_dir + "/dca_article_candidate_cat_sim.tsv", true);
+
+//        if (isLCA) FileUtils.saveText(sb_out_lca.toString(), out_dir + "/lca_article_candidate_cat_sim.tsv", true);
     }
 
     /**

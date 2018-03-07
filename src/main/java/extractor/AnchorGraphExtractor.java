@@ -80,9 +80,15 @@ public class AnchorGraphExtractor {
                         page_content += "</page>";
                     }
 
+                    //skip this page, it is a redirect one.
+                    if (page_content.contains("<redirect title")) {
+                        return;
+                    }
+
                     Document doc = FileUtils.readXMLDocumentFromString(page_content);
                     String entity_name = doc.getElementsByTagName("title").item(0).getTextContent();
                     String entity_text = doc.getElementsByTagName("text").item(0).getTextContent();
+
 
                     if (seeds != null && !seeds.isEmpty() && !seeds.contains(entity_name)) {
                         return;

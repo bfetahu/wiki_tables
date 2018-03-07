@@ -241,7 +241,8 @@ public class GTPairs {
     }
 
     /**
-     * Generate all possible GT pairs between the sample entities and the article candidates.
+     * Generate all possible GT pairs between the sample entities and the article candidates. In this case we do not
+     * consider entities whose LCA category is the root category
      *
      * @param seed_entities
      * @param category_path
@@ -262,7 +263,6 @@ public class GTPairs {
         //set num entities for each category.
         DataUtils.updateCatsWithEntities(cat, cats_entities);
         for (String sample_entity : seed_entities) {
-
             int total = 0;
             for (String child_label : cat.children.keySet()) {
                 CategoryRepresentation child = cat.children.get(child_label);

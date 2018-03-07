@@ -66,7 +66,6 @@ public class TablePrinter {
                 sb.append("{\"section\":\"").append(StringEscapeUtils.escapeJson(section.getString("section"))).
                         append("\", \"text\":\"").append(StringEscapeUtils.escapeJson(section.getString("text"))).
                         append("\", \"tables\":[");
-
                 //process all the tables.
                 JSONArray tables = section.getJSONArray("tables");
                 for (int j = 0; j < tables.length(); j++) {
