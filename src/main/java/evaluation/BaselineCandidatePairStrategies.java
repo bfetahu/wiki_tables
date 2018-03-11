@@ -1,7 +1,9 @@
 package evaluation;
 
+import datastruct.TableCandidateFeatures;
 import datastruct.WikiAnchorGraph;
 import io.FileUtils;
+import org.apache.commons.lang3.tuple.Triple;
 import representation.CategoryRepresentation;
 import utils.DataUtils;
 
@@ -13,8 +15,8 @@ import java.util.stream.Collectors;
 /**
  * Created by besnik on 2/7/18.
  */
-public class CandidatePairStrategies {
-    public static Map<String, CategoryRepresentation> cat_to_map;
+public class BaselineCandidatePairStrategies {
+    public static Map<String, CategoryRepresentation> cat_to_map = new HashMap<>();
     public static Map<String, Set<String>> entity_cats;
     public static Map<String, Set<String>> cat_entities;
 
@@ -22,6 +24,9 @@ public class CandidatePairStrategies {
     public static Map<String, Set<String>> gt_pairs;
     public static Set<String> filter_entities;
     public static Set<String> seed_entities;
+
+    //similarity cutoffs
+    public static double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
 
     public static void main(String[] args) throws IOException {
         String all_pairs = "", out_dir = "", option = "", article_categories = "", category_path = "", anchor_data = "", wiki_articles = "";
@@ -61,16 +66,90 @@ public class CandidatePairStrategies {
         if (option.equals("level")) {
             computeEntityPairTaxonomyLevelCoverage(article_categories, category_path, out_dir);
         } else if (option.equals("rep_sim")) {
-            computeCategoryRepSimilarityCoverage(article_categories, category_path, all_pairs, out_dir);
+            computeCategoryRepSimilarityCoverage(category_path, all_pairs, out_dir);
         } else if (option.equals("simrank")) {
             computeSimRankGraphSimple(damping_factor, iterations, all_pairs, anchor_data, out_dir, wiki_articles);
         } else if (option.equals("greedy")) {
             computeGreedyCoverage(out_dir);
         } else if (option.equals("mw")) {
             computeMWRelatednessScores(wiki_articles, anchor_data, out_dir);
+        } else if (option.equals("lca_scoring")) {
+            scoreLCATableCandidatesCategoryRep(category_path, article_categories, out_dir);
         }
     }
 
+
+    /**
+     * Score the generated article candidates for table alignment, based on their similarity on the category representations,
+     * distance to the lowest common ancestor between the two categories.
+     *
+     * @param article_categories
+     * @param out_dir
+     */
+    public static void scoreLCATableCandidatesCategoryRep(String category_path, String article_categories, String out_dir) throws IOException {
+        CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(category_path);
+        cat.loadIntoMapChildCats(cat_to_map);
+
+        //load the article categories
+        Map<String, Set<String>> entity_cats = DataUtils.readEntityCategoryMappingsWiki(article_categories, filter_entities);
+
+        //compute for all pairs the min, max, average distance of the categories for article A  and B to their LCA category
+        Map<String, Map<String, Triple<Double, Double, Double>>> pairs = TableCandidateFeatures.computeLCAEntityCandidatePairScores(seed_entities, filter_entities, cat_to_map, entity_cats);
+
+        //cut-offs to filter with
+        double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 5.0, 10.0, Double.MAX_VALUE};
+
+        String out_file_min = out_dir + "/lca_min_entity_pairs.tsv";
+        String out_file_max = out_dir + "/lca_max_entity_pairs.tsv";
+        String out_file_mean = out_dir + "/lca_mean_entity_pairs.tsv";
+
+        //compute for different relatedness scores the number of relevant/irrelevant pairs.
+        StringBuffer sb = new StringBuffer();
+        sb.append("entity\tlevel\tgt_total");
+
+        for (int i = 0; i < cutoffs.length; i++) {
+            sb.append("\tall_candidates[").append(cutoffs[i]).append("]\toverlap[").append(cutoffs[i]).append("]\tunaligned_entities[").append(cutoffs[i]).append("]");
+        }
+        sb.append("\n");
+
+
+        StringBuffer sb_min = new StringBuffer(sb.toString());
+        StringBuffer sb_max = new StringBuffer(sb.toString());
+        StringBuffer sb_mean = new StringBuffer(sb.toString());
+        for (String entity : seed_entities) {
+            Set<String> sub_entity_gt_pairs = gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>();
+            int gt_total = sub_entity_gt_pairs.size();
+            sb_min.append(entity).append("\t").append(0).append("\t").append(gt_total);
+            sb_max.append(entity).append("\t").append(0).append("\t").append(gt_total);
+            sb_mean.append(entity).append("\t").append(0).append("\t").append(gt_total);
+
+            //compute the overlap for each cut-off point
+            for (double cutoff : cutoffs) {
+                long sub_pairs_min_total = pairs.get(entity).entrySet().stream().filter(s -> s.getValue().getLeft() >= cutoff).count();
+                long sub_pairs_max_total = pairs.get(entity).entrySet().stream().filter(s -> s.getValue().getMiddle() >= cutoff).count();
+                long sub_pairs_mean_total = pairs.get(entity).entrySet().stream().filter(s -> s.getValue().getRight() >= cutoff).count();
+
+                long sub_pairs_min_overlap = pairs.get(entity).entrySet().stream().filter(s -> s.getValue().getLeft() >= cutoff).filter(s -> sub_entity_gt_pairs.contains(s)).count();
+                long sub_pairs_max_overlap = pairs.get(entity).entrySet().stream().filter(s -> s.getValue().getMiddle() >= cutoff).filter(s -> sub_entity_gt_pairs.contains(s)).count();
+                long sub_pairs_mean_overlap = pairs.get(entity).entrySet().stream().filter(s -> s.getValue().getRight() >= cutoff).filter(s -> sub_entity_gt_pairs.contains(s)).count();
+
+                long sub_pairs_min_additional = sub_pairs_min_total - sub_pairs_min_overlap;
+                long sub_pairs_max_additional = sub_pairs_max_total - sub_pairs_max_overlap;
+                long sub_pairs_mean_additional = sub_pairs_mean_total - sub_pairs_mean_overlap;
+
+                sb_min.append("\t").append(sub_pairs_min_total).append("\t").append(sub_pairs_min_overlap).append("\t").append(sub_pairs_min_additional);
+                sb_max.append("\t").append(sub_pairs_max_total).append("\t").append(sub_pairs_max_overlap).append("\t").append(sub_pairs_max_additional);
+                sb_mean.append("\t").append(sub_pairs_mean_total).append("\t").append(sub_pairs_mean_overlap).append("\t").append(sub_pairs_mean_additional);
+            }
+            sb_min.append("\n");
+            sb_max.append("\n");
+            sb_mean.append("\n");
+        }
+
+        FileUtils.saveText(sb_min.toString(), out_file_min);
+        FileUtils.saveText(sb_max.toString(), out_file_max);
+        FileUtils.saveText(sb_mean.toString(), out_file_mean);
+    }
 
     /**
      * Compute the Milne-Witten score between entity pairs which contain possible table candidates for alignment.
@@ -93,8 +172,6 @@ public class CandidatePairStrategies {
         seed_entities.forEach(e -> entity_pairs.put(e, filter_entities));
         Map<String, Map<String, Double>> pair_scores = wg.computeMilneWittenScorePairs(entity_pairs, out_dir);
         System.out.printf("Finished computing the MW scores for %d entities.\n", entity_pairs.size());
-
-        double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
 
         //compute for different relatedness scores the number of relevant/irrelevant pairs.
         StringBuffer sb = new StringBuffer();
@@ -142,7 +219,6 @@ public class CandidatePairStrategies {
         for (String entity : seed_entities) {
             Set<String> sub_gt_entities = gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>();
             Set<String> sub_greedy_entities = new HashSet<>(filter_entities);
-            sub_greedy_entities.remove(entity);
 
             //compute all the measures.
             int candidate_total = sub_greedy_entities.size();
@@ -201,7 +277,6 @@ public class CandidatePairStrategies {
                 System.out.println(line);
             }
         }
-        double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
 
         //compute for different relatedness scores the number of relevant/irrelevant pairs.
         StringBuffer sb = new StringBuffer();
@@ -228,7 +303,7 @@ public class CandidatePairStrategies {
             int gt_total = gt_pairs.containsKey(entity) ? gt_pairs.get(entity).size() : 0;
             sb.append(entity).append("\t").append(0).append("\t").append(gt_total);
             for (double val : cutoffs) {
-                Set<String> sub_entities = sub_pairs.entrySet().stream().filter(s -> s.getValue() >= val).map(s -> wg.entities.get(s)).collect(Collectors.toSet());
+                Set<String> sub_entities = sub_pairs.entrySet().stream().filter(s -> s.getValue() >= val).map(s -> wg.entities.get(s.getKey())).collect(Collectors.toSet());
                 int candidate_total = sub_entities.size();
                 sub_entities.retainAll(gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>());
                 int overlapping = sub_entities.size();
@@ -291,42 +366,20 @@ public class CandidatePairStrategies {
      * @param out_dir
      * @param cat_rep_sim
      */
-    public static void computeCategoryRepSimilarityCoverage(String article_categories, String category_path, String cat_rep_sim, String out_dir) throws IOException {
-        loadEntityCategoryDataStructures(article_categories, category_path);
+    public static void computeCategoryRepSimilarityCoverage(String cat_rep_path, String cat_rep_sim, String out_dir) throws IOException {
+        CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep_path);
+        Map<String, Map<String, Double>> entity_cat_rep_score = loadCategorySimilarity(cat, seed_entities, cat_rep_sim);
+
+        double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 5.0, 10.0, Double.MAX_VALUE};
+
+        //compute for different relatedness scores the number of relevant/irrelevant pairs.
         StringBuffer sb = new StringBuffer();
+        sb.append("entity\tlevel\tgt_total");
 
-        String line;
-        BufferedReader reader = FileUtils.getFileReader(cat_rep_sim);
-        Map<String, Map.Entry<String, Double>> entity_cat_rep_score = new HashMap<>();
-
-        int total = 0;
-        while ((line = reader.readLine()) != null) {
-            try {
-                String[] data = line.split("\t");
-                total++;
-
-                if (total % 100000 == 0) {
-                    System.out.println("Processed " + total);
-                }
-
-                String article_a = data[0];
-                String article_b = data[1];
-                String cat_a = data[3];
-                double score = Double.parseDouble(data[4]);
-
-                if (!cat_to_map.containsKey(cat_a) || !filter_entities.contains(article_b)) {
-                    continue;
-                }
-
-                if (!entity_cat_rep_score.containsKey(article_a)) {
-                    entity_cat_rep_score.put(article_a, new AbstractMap.SimpleEntry<>(cat_a, score));
-                } else if (entity_cat_rep_score.get(article_a).getValue() < score) {
-                    entity_cat_rep_score.put(article_a, new AbstractMap.SimpleEntry<>(cat_a, score));
-                }
-            } catch (Exception e) {
-                System.out.println(line);
-            }
+        for (int i = 0; i < cutoffs.length; i++) {
+            sb.append("\tall_candidates[").append(cutoffs[i]).append("]\toverlap[").append(cutoffs[i]).append("]\tunaligned_entities[").append(cutoffs[i]).append("]");
         }
+        sb.append("\n");
 
         //output the results
         for (String entity : seed_entities) {
@@ -335,20 +388,24 @@ public class CandidatePairStrategies {
                 continue;
             }
             System.out.println("Processing entity " + entity);
-            Map.Entry<String, Double> category_info = entity_cat_rep_score.get(entity);
-            //here we get the level of the category from the candidate articles
-            int level = cat_to_map.get(category_info.getKey()).level;
+            Map<String, Double> category_info = entity_cat_rep_score.get(entity);
 
-            //compute all the measures.
-            Set<String> entity_pairs = cat_entities.get(category_info.getKey());
-            int candidate_total = entity_pairs.size();
             int gt_total = gt_pairs.containsKey(entity) ? gt_pairs.get(entity).size() : 0;
+            sb.append(entity).append("\t").append(0).append("\t").append(gt_total);
 
-            entity_pairs.retainAll(gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>());
-            int overlapping = entity_pairs.size();
-            int additional = candidate_total - overlapping;
+            for (double val : cutoffs) {
+                Set<String> sub_cats = category_info.entrySet().stream().filter(s -> s.getValue() <= val).map(s -> s.getKey()).collect(Collectors.toSet());
+                Set<String> sub_entities = new HashSet<>();
+                sub_cats.stream().filter(s -> cat_entities.containsKey(s)).forEach(s -> sub_entities.addAll(cat_entities.get(s).stream().filter(e -> filter_entities.contains(e)).collect(Collectors.toList())));
 
-            sb.append(entity).append("\t").append(level).append("\t").append(candidate_total).append("\t").append(gt_total).append("\t").append(overlapping).append("\t").append(additional).append("\n");
+
+                int candidate_total = sub_entities.size();
+                sub_entities.retainAll(gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>());
+                int overlapping = sub_entities.size();
+                int additional = candidate_total - overlapping;
+                sb.append("\t").append(candidate_total).append("\t").append(overlapping).append("\t").append(additional);
+            }
+            sb.append("\n");
         }
 
         FileUtils.saveText(sb.toString(), out_dir + "/coverage_cat_rep_sim.tsv");
@@ -404,5 +461,75 @@ public class CandidatePairStrategies {
 
         cat_to_map = new HashMap<>();
         cats.loadIntoMapChildCats(cat_to_map);
+    }
+
+
+    /**
+     * Load the category similarities for a given set of seed entities. For each entity we load the similarity to all
+     * its associated categories.
+     *
+     * @param entities
+     * @param file
+     * @return
+     * @throws IOException
+     */
+    public static Map<String, Map<String, Double>> loadCategorySimilarity(CategoryRepresentation cat,
+                                                                          Set<String> entities,
+                                                                          String file) throws IOException {
+        Map<String, Map<String, Double>> csim = new HashMap<>();
+        //load first the category representation for each entity by traversing the category graph.
+        Map<String, Set<String>> entity_cats = new HashMap<>();
+        traverseEntityCats(entities, cat, entity_cats);
+
+        //load all the categories of the seed entities into a set to filter out the file.
+        Set<String> seed_cats = entity_cats.keySet();
+
+        BufferedReader reader = FileUtils.getFileReader(file);
+        String line;
+        while ((line = reader.readLine()) != null) {
+            String[] data = line.split("\t");
+
+            String cat_a = data[0];
+            String cat_b = data[1];
+            double score = Double.parseDouble(data[5]);
+
+            if (!seed_cats.contains(cat_a)) {
+                continue;
+            }
+
+            //load the data for each category
+            for (String entity : entity_cats.get(cat_a)) {
+                if (!csim.containsKey(entity)) {
+                    csim.put(entity, new HashMap<>());
+                }
+                Map<String, Double> e_csim = csim.get(entity);
+                e_csim.put(cat_b, score);
+            }
+        }
+        return csim;
+    }
+
+
+    /**
+     * Load all the categories for a set of seed entities.
+     *
+     * @param seed_entities
+     * @param cat
+     * @param cat_entity
+     */
+    public static void traverseEntityCats(Set<String> seed_entities, CategoryRepresentation cat, Map<String, Set<String>> cat_entity) {
+        if (!cat.entities.isEmpty()) {
+            for (String entity : seed_entities) {
+                if (cat.entities.contains(entity)) {
+                    if (!cat_entity.containsKey(cat.label)) {
+                        cat_entity.put(cat.label, new HashSet<>());
+                    }
+                    cat_entity.get(cat.label).add(entity);
+                }
+            }
+        }
+
+        //we proceed to the children of this category
+        cat.children.entrySet().forEach(child -> traverseEntityCats(seed_entities, child.getValue(), cat_entity));
     }
 }

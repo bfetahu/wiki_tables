@@ -1,19 +1,15 @@
 package utils;
 
-import cern.colt.matrix.tdouble.DoubleMatrix2D;
 import gnu.trove.map.hash.TIntDoubleHashMap;
 import gnu.trove.map.hash.TIntIntHashMap;
-import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
 import org.json.JSONObject;
-import org.ojalgo.matrix.store.SparseStore;
 import representation.CategoryRepresentation;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -81,6 +77,41 @@ public class DataUtils {
                 entity_cats.put(category, new HashSet<>());
             }
             entity_cats.get(category).add(article);
+        }
+        return entity_cats;
+    }
+
+    /**
+     * Read the entity-category associations.
+     *
+     * @param file
+     * @return
+     * @throws IOException
+     */
+    public static Map<String, Set<String>> readEntityCategoryMappingsWiki(String file, Set<String> seed_entities) throws IOException {
+        Map<String, Set<String>> entity_cats = new HashMap<>();
+        BufferedReader reader = FileUtils.getFileReader(file);
+
+        String line;
+        while ((line = reader.readLine()) != null) {
+            String[] parts = line.split("\t");
+
+            if (line.isEmpty() || parts.length < 2) {
+                continue;
+            }
+
+            String article = parts[0].trim().intern();
+            String category = parts[1].trim().intern();
+
+            //in case we want to limit the category representation only to those entities which have a table.
+            if (seed_entities != null && !seed_entities.isEmpty() && !seed_entities.contains(article)) {
+                continue;
+            }
+
+            if (!entity_cats.containsKey(article)) {
+                entity_cats.put(article, new HashSet<>());
+            }
+            entity_cats.get(article).add(category);
         }
         return entity_cats;
     }
@@ -198,6 +229,22 @@ public class DataUtils {
     }
 
     /**
+     * Compute the attribute weights for all the categories.
+     *
+     * @param max_level_property
+     * @return
+     */
+    public static Map<String, TIntDoubleHashMap> computeCategoryAttributeWeights(Map<String, Double> max_level_property, Map<String, CategoryRepresentation> cat_to_map) {
+        Map<String, TIntDoubleHashMap> weights = new HashMap<>();
+
+        for (String category : cat_to_map.keySet()) {
+            TIntDoubleHashMap cat_weights = DataUtils.computeCategoryPropertyWeights(cat_to_map.get(category), max_level_property);
+            weights.put(category, cat_weights);
+        }
+        return weights;
+    }
+
+    /**
      * Compute the weights for attributes in a category. For a category c, and attribute p the weight is :
      * weight(p, c) = \lambda_c / \max\lambda_c_j * \frac{|\cup \langle p, o\rangle|}{|\langle p, o\rangle|}
      * where \lambda_c is the level of category c, and \max_lambda_c_j is the maximum length (closest to the root) in
@@ -216,7 +263,7 @@ public class DataUtils {
             int num_values = cat_rep.get(prop).size();
             double num_assignments = Arrays.stream(cat_rep.get(prop).values()).mapToDouble(x -> x).sum();
 
-            double weight = cat.level / min_level_property.get(prop) * num_values / num_assignments;
+            double weight = cat.level / min_level_property.get(prop) * (-Math.log(num_values / num_assignments));
             cat_prop_weight.put(prop.hashCode(), weight);
         }
         return cat_prop_weight;
@@ -241,7 +288,7 @@ public class DataUtils {
         for (int key : all_keys.toArray()) {
             double val_a = weights_a.containsKey(key) ? weights_a.get(key) : 0.0;
             double val_b = weights_b.containsKey(key) ? weights_b.get(key) : 0.0;
-            result += Math.pow(2, val_a - val_b);
+            result += Math.pow(val_a - val_b, 2);
         }
         return Math.sqrt(result);
     }
@@ -273,397 +320,60 @@ public class DataUtils {
 
 
     /**
-     * Multiply matrices which are represented in terms of map data structures. In this way we have a compressed form
-     * and also we can multiply in parallel.
+     * Find the lowest common ancestor for the two categories under consideration.
      *
-     * @param a
-     * @param b
-     * @param col_dim provides the column dimensions of the target matrix
-     * @param row_dim provides the column dimensions of the target matrix
+     * @param cat_a
+     * @param cat_b
      * @return
      */
-    public static TIntObjectHashMap<TIntDoubleHashMap> multiply(TIntObjectHashMap<TIntDoubleHashMap> a,
-                                                                TIntObjectHashMap<TIntDoubleHashMap> b,
-                                                                int row_dim, int col_dim) {
-        TIntObjectHashMap<TIntDoubleHashMap> c = new TIntObjectHashMap<>();
+    public static Set<CategoryRepresentation> findCommonAncestor(CategoryRepresentation cat_a, CategoryRepresentation cat_b, Map<String, CategoryRepresentation> cat_to_map) {
+        Set<CategoryRepresentation> ancestors = new HashSet<>();
 
-        Arrays.stream(a.keys()).forEach(row_idx -> {
-            TIntDoubleHashMap c_row = new TIntDoubleHashMap();
-            TIntDoubleHashMap row = a.get(row_idx);
-            for (int col_idx = 0; col_idx < col_dim; col_idx++) {
-                TIntDoubleHashMap col = b.get(col_idx);
-                double sum = multiplyRowCol(row, col, row_dim);
-                c_row.put(col_idx, sum);
-            }
-            c.put(row_idx, c_row);
-        });
+        Set<String> parents_a = new HashSet<>();
+        Set<String> parents_b = new HashSet<>();
 
-        return c;
-    }
+        gatherParents(cat_a, parents_a);
+        gatherParents(cat_b, parents_b);
 
-    /**
-     * Multiply matrices which are represented in terms of map data structures. In this way we have a compressed form
-     * and also we can multiply in parallel.
-     *
-     * @param a
-     * @param b
-     * @return
-     */
-    public static ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> multiplyParallel(ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> a,
-                                                                                                  ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> b) {
-        ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> c = new ConcurrentHashMap<>();
+        //take the intersection of the two parent sets.
+        parents_a.retainAll(parents_b);
+        parents_a.remove("root");
 
-        a.keySet().parallelStream().forEach(row_idx -> {
-            ConcurrentHashMap<Integer, Double> c_row = new ConcurrentHashMap<>();
-            c.put(row_idx, c_row);
-
-            ConcurrentHashMap<Integer, Double> row = a.get(row_idx);
-            b.keySet().parallelStream().forEach(col_idx -> {
-                ConcurrentHashMap<Integer, Double> col = b.get(col_idx);
-                double sum = multiplyRowCol(row, col);
-                c_row.put(col_idx, sum);
-            });
-        });
-
-        return c;
-    }
-
-    /**
-     * Multiply matrices which are represented in terms of map data structures. In this way we have a compressed form
-     * and also we can multiply in parallel.
-     *
-     * @param a
-     * @param b
-     * @param row_dim provides the column dimensions of the target matrix
-     * @return
-     */
-    public static TIntDoubleHashMap multiply(TIntObjectHashMap<TIntDoubleHashMap> a,
-                                             TIntDoubleHashMap b,
-                                             int row_dim) {
-        TIntDoubleHashMap c = new TIntDoubleHashMap();
-
-        Arrays.stream(a.keys()).forEach(row_idx -> {
-            TIntDoubleHashMap row = a.get(row_idx);
-            double sum = multiplyRowCol(row, b, row_dim);
-            c.put(row_idx, sum);
-        });
-
-        return c;
-    }
-
-    /**
-     * Multiply matrices which are represented in terms of map data structures. In this way we have a compressed form
-     * and also we can multiply in parallel.
-     *
-     * @param a
-     * @param b
-     * @return
-     */
-    public static ConcurrentHashMap<Integer, Double> multiplyMatrixVectorParallel(ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> a,
-                                                                                  ConcurrentHashMap<Integer, Double> b) {
-        ConcurrentHashMap<Integer, Double> c = new ConcurrentHashMap<>();
-        a.keySet().parallelStream().forEach(row_idx -> {
-            ConcurrentHashMap<Integer, Double> row = a.get(row_idx);
-            double sum = multiplyRowCol(row, b);
-            c.put(row_idx, sum);
-        });
-
-        return c;
-    }
-
-    /**
-     * Multiply matrices which are represented in terms of map data structures. In this way we have a compressed form
-     * and also we can multiply in parallel.
-     *
-     * @param a
-     * @return
-     */
-    public static TIntObjectHashMap<TIntDoubleHashMap> multiply(TIntObjectHashMap<TIntDoubleHashMap> a,
-                                                                double scalar) {
-        TIntObjectHashMap<TIntDoubleHashMap> r = new TIntObjectHashMap<>();
-        Arrays.stream(a.keys()).forEach(row_idx -> {
-            if (!r.containsKey(row_idx)) {
-                r.put(row_idx, new TIntDoubleHashMap());
-            }
-            for (int col_dix : a.get(row_idx).keys()) {
-                double val = a.get(row_idx).get(col_dix) * scalar;
-                r.get(row_idx).put(col_dix, val);
-            }
-        });
-
-        return r;
-    }
-
-
-    /***
-     * Multiply matrices on row by column technique.
-     * @param row
-     * @param col
-     * @return
-     */
-    public static double multiplyRowCol(TIntDoubleHashMap row, TIntDoubleHashMap col, int n) {
-        double sum = 0;
-        for (int i = 0; i < n; i++) {
-            if (!row.containsKey(i) || !col.containsKey(i)) {
-                continue;
-            }
-            sum += row.get(i) * col.get(i);
-        }
-        return sum;
-    }
-
-    /**
-     * Convert a row based indexing of a matrix into a column indexed one.
-     *
-     * @param a
-     * @return
-     */
-    public static ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> columnIndexParallel(ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> a) {
-        ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> b = new ConcurrentHashMap<>();
-
-        a.keySet().parallelStream().forEach(row_idx -> {
-            a.get(row_idx).keySet().forEach(col_idx -> {
-                double value = a.get(row_idx).get(col_idx);
-
-                if (!b.containsKey(col_idx)) {
-                    b.put(col_idx, new ConcurrentHashMap<>());
-                }
-                b.get(col_idx).put(row_idx, value);
-            });
-        });
-
-        return b;
-    }
-
-
-    /**
-     * Multiply matrices which are represented in terms of map data structures. In this way we have a compressed form
-     * and also we can multiply in parallel.
-     *
-     * @param a
-     * @return
-     */
-    public static ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> multiplyParallel(ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> a,
-                                                                                                  double scalar) {
-        ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> r = new ConcurrentHashMap<>();
-        a.keySet().parallelStream().forEach(row_idx -> {
-            ConcurrentHashMap<Integer, Double> new_row = new ConcurrentHashMap<>();
-            ConcurrentHashMap<Integer, Double> row = a.get(row_idx);
-            r.put(row_idx, new_row);
-
-            row.keySet().forEach(col_idx -> {
-                double val = row.get(col_idx) * scalar;
-                new_row.put(col_idx, val);
-            });
-        });
-
-        return r;
-    }
-
-
-    /***
-     * Multiply matrices on row by column technique.
-     * @param row
-     * @param col
-     * @return
-     */
-    public static double multiplyRowCol(ConcurrentHashMap<Integer, Double> row, ConcurrentHashMap<Integer, Double> col) {
-        double sum = 0;
-        TIntHashSet all = new TIntHashSet(row.keySet());
-        all.retainAll(col.keySet());
-        for (int i : all.toArray()) {
-            sum += row.get(i) * col.get(i);
-        }
-        return sum;
-    }
-
-    /**
-     * Convert a row based indexing of a matrix into a column indexed one.
-     *
-     * @param a
-     * @return
-     */
-    public static TIntObjectHashMap<TIntDoubleHashMap> columnIndex(TIntObjectHashMap<TIntDoubleHashMap> a) {
-        TIntObjectHashMap<TIntDoubleHashMap> b = new TIntObjectHashMap<>();
-
-        for (int row_idx : a.keys()) {
-            Arrays.stream(a.get(row_idx).keys()).forEach(col_idx -> {
-                double value = a.get(row_idx).get(col_idx);
-
-                if (!b.containsKey(col_idx)) {
-                    b.put(col_idx, new TIntDoubleHashMap());
-                }
-                b.get(col_idx).put(row_idx, value);
-            });
+        if (parents_a.isEmpty()) {
+            return null;
         }
 
-        return b;
-    }
+        int max_level = parents_a.stream().mapToInt(parent -> cat_to_map.get(parent).level).max().getAsInt();
 
-
-    public static void loadMatrix(TIntObjectHashMap<TIntDoubleHashMap> sparse_list, SparseStore<Double> matrix) {
-        Arrays.stream(sparse_list.keys()).forEach(row_idx -> {
-            Arrays.stream(sparse_list.get(row_idx).keys()).forEach(col_idx -> {
-                double value = sparse_list.get(row_idx).get(col_idx);
-                try {
-                    matrix.set(row_idx, col_idx, value);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    System.out.printf("%d=%d \tMatrix has dim %dx%d.\n", row_idx, col_idx, matrix.countRows(), matrix.countColumns());
-
-                }
-            });
-        });
-    }
-
-    public static void loadMatrix(TIntObjectHashMap<TIntDoubleHashMap> sparse_list, DoubleMatrix2D matrix) {
-        Arrays.stream(sparse_list.keys()).forEach(row_idx -> {
-            Arrays.stream(sparse_list.get(row_idx).keys()).forEach(col_idx -> {
-                double value = sparse_list.get(row_idx).get(col_idx);
-                matrix.set(row_idx, col_idx, value);
-            });
-        });
-    }
-
-    /**
-     * Add vector b to vector a.
-     *
-     * @param a
-     * @param b
-     * @return
-     */
-    public static TIntDoubleHashMap add(TIntDoubleHashMap a, TIntDoubleHashMap b) {
-        for (int key : b.keys()) {
-            double val = b.get(key);
-
-            if (!a.containsKey(key)) {
-                a.put(key, val);
-            } else {
-                a.put(key, a.get(key) + val);
-            }
-        }
-        return a;
-    }
-
-    /**
-     * Add vector b to vector a.
-     *
-     * @param a
-     * @param b
-     * @return
-     */
-    public static ConcurrentHashMap<Integer, Double> addParallel(ConcurrentHashMap<Integer, Double> a, ConcurrentHashMap<Integer, Double> b) {
-        b.keySet().parallelStream().forEach(key -> {
-            double val = b.get(key);
-
-            if (!a.containsKey(key)) {
-                a.put(key, val);
-            } else {
-                a.put(key, a.get(key) + val);
-            }
-
-        });
-        return a;
-    }
-
-    /**
-     * Print a sparse matrix which is stored into a map data structure.
-     *
-     * @param a
-     */
-    public static void printMatrix(TIntObjectHashMap<TIntDoubleHashMap> a) {
-        for (int row_id : a.keys()) {
-            for (int col_id : a.get(row_id).keys()) {
-                System.out.printf("<%d, %d>=%.2f\t", row_id, col_id, a.get(row_id).get(col_id));
-            }
-            System.out.println();
-        }
-        System.out.println();
-    }
-
-    /**
-     * Print a sparse matrix which is stored into a map data structure.
-     *
-     * @param a
-     */
-    public static void printMatrix(TIntDoubleHashMap a) {
-        for (int row_id : a.keys()) {
-            System.out.printf("%d=%.2f\n", row_id, a.get(row_id));
-        }
-        System.out.println();
-    }
-
-
-    /**
-     * Print a sparse matrix which is stored into a map data structure.
-     *
-     * @param a
-     */
-    public static void printMatrix(ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> a) {
-        for (int row_id : a.keySet()) {
-            for (int col_id : a.get(row_id).keySet()) {
-                System.out.printf("<%d, %d>=%.2f\t", row_id, col_id, a.get(row_id).get(col_id));
-            }
-            System.out.println();
-        }
-        System.out.println();
-    }
-
-    /**
-     * Print a sparse matrix which is stored into a map data structure.
-     *
-     * @param a
-     */
-    public static void printMatrixVector(ConcurrentHashMap<Integer, Double> a) {
-        for (int row_id : a.keySet()) {
-            System.out.printf("%d=%.2f\n", row_id, a.get(row_id));
-        }
-        System.out.println();
-    }
-
-    /**
-     * Transposes a matrix.
-     *
-     * @param a
-     * @return
-     */
-    public static TIntObjectHashMap<TIntDoubleHashMap> transposeMatrix(TIntObjectHashMap<TIntDoubleHashMap> a) {
-        TIntObjectHashMap<TIntDoubleHashMap> at = new TIntObjectHashMap<>();
-
-        for (int i : a.keys()) {
-            for (int j : a.get(i).keys()) {
-                double val = a.get(i).get(j);
-
-                if (!at.containsKey(j)) {
-                    at.put(j, new TIntDoubleHashMap());
-                }
-                at.get(j).put(i, val);
+        for (String parent : parents_a) {
+            CategoryRepresentation cat = cat_to_map.get(parent);
+            if (cat.level == max_level) {
+                ancestors.add(cat);
             }
         }
 
-        return at;
+        return ancestors;
     }
+
 
     /**
-     * Transposes a matrix.
+     * Gather all the parents of category up to the root of the category.
      *
-     * @param a
-     * @return
+     * @param cat
+     * @param parents
      */
-    public static ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> transposeMatrixParallel(ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> a) {
-        ConcurrentHashMap<Integer, ConcurrentHashMap<Integer, Double>> at = new ConcurrentHashMap<>();
+    public static void gatherParents(CategoryRepresentation cat, Set<String> parents) {
+        if (cat == null || cat.parents == null) {
+            return;
+        }
+        cat.parents.keySet().forEach(parent_label -> {
+            if (parents.contains(parent_label)) {
+                return;
+            }
+            parents.add(parent_label);
 
-        a.keySet().forEach(i -> {
-            a.get(i).keySet().forEach(j -> {
-                double val = a.get(i).get(j);
-
-                if (!at.containsKey(j)) {
-                    at.put(j, new ConcurrentHashMap<>());
-                }
-                at.get(j).put(i, val);
-            });
+            gatherParents(cat.parents.get(parent_label), parents);
         });
-
-        return at;
     }
+
 }

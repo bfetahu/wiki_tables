@@ -437,12 +437,6 @@ public class CategoryRepresentation implements Serializable {
             if (!FileUtils.fileExists(out_dir + "/full_category_representation.txt", false)) {
                 cat.saveCategoryRepresentation(out_dir + "/full_category_representation.txt");
             }
-
-
-            //write only the category representation  since it takes less space.
-            if (!FileUtils.fileExists(out_dir + "/full_category_representation_simplified.obj", false)) {
-                FileUtils.saveObject(cat.cat_representation, out_dir + "/full_category_representation_simplified.obj");
-            }
         }
     }
 

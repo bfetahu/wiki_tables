@@ -1,10 +1,12 @@
-package representation;
+package evaluation;
 
 import datastruct.TableCandidateFeatures;
+import evaluation.ArticleCandidates;
 import io.FileUtils;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import representation.CategoryRepresentation;
 import utils.DataUtils;
 
 import java.io.BufferedReader;
@@ -268,7 +270,7 @@ public class GTPairs {
                 CategoryRepresentation child = cat.children.get(child_label);
                 //we generate all possible pairs between the sampled entity and other entities that do not fall into the same category
                 for (String entity : child.entities) {
-                    TableCandidateFeatures tbl_candidate = ac.measureArticleCandidateScore(sample_entity, entity, entity_cats);
+                    TableCandidateFeatures tbl_candidate = TableCandidateFeatures.measureArticleCandidateScore(sample_entity, entity, entity_cats, null);
                     if (tbl_candidate == null) {
                         continue;
                     }
