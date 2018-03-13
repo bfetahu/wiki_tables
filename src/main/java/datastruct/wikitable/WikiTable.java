@@ -1,5 +1,7 @@
 package datastruct.wikitable;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import utils.TableCellUtils;
 
 import java.io.Serializable;
@@ -21,6 +23,9 @@ public class WikiTable implements Serializable {
     public int start;
     public String preceeding_text;
     public String table_caption;
+
+    public WikiTable() {
+    }
 
     public WikiTable(String markup) {
         this.markup = markup;
@@ -509,5 +514,89 @@ public class WikiTable implements Serializable {
         markup = markup.replaceAll("<ref(\\s+name=(.*?))?>(.*?)</ref>", "");
         markup = markup.replaceAll("data-sort-(.*?)=\"(.*?)\"", "");
         markup = markup.replaceAll("&nbsp.", "");
+    }
+
+    /**
+     * Loads the table from a structured JSON.
+     *
+     * @param json
+     */
+    public void loadFromStructuredJSON(JSONObject json, boolean loadValueDist) {
+        this.table_caption = json.getString("caption");
+        this.table_id = json.getInt("id");
+
+        //get the table headers.
+        JSONArray headers = json.getJSONArray("header");
+        int header_len = headers.length();
+
+        columns = new WikiColumnHeader[header_len][];
+        for (int i = 0; i < header_len; i++) {
+            JSONArray cols = headers.getJSONObject(i).getJSONArray("columns");
+            columns[i] = new WikiColumnHeader[cols.length()];
+
+            for (int j = 0; j < cols.length(); j++) {
+                JSONObject json_col = cols.getJSONObject(j);
+                WikiColumnHeader col = new WikiColumnHeader();
+                col.column_name = json_col.getString("name");
+                col.col_span = json_col.getInt("col_span");
+                col.row_span = json_col.getInt("row_span");
+
+                if (loadValueDist) {
+                    col.value_dist = new HashMap<>();
+                    JSONArray val_dist = json_col.getJSONArray("value_dist");
+                    for (int k = 0; k < val_dist.length(); k++) {
+                        JSONObject val_json = val_dist.getJSONObject(k);
+                        Object val = val_json.get("value");
+                        int count = val_json.getInt("count");
+
+                        col.value_dist.put(val, count);
+                    }
+                }
+
+                columns[i][j] = col;
+            }
+        }
+
+        //load the table rows
+        JSONArray rows = json.getJSONArray("rows");
+        int row_no = rows.length();
+
+        cells = new WikiTableCell[row_no][];
+        for (int i = 0; i < row_no; i++) {
+            JSONArray row_values = rows.getJSONObject(i).getJSONArray("values");
+            cells[i] = new WikiTableCell[row_values.length()];
+
+            for (int k = 0; k < row_values.length(); k++) {
+                JSONObject cell_value = row_values.getJSONObject(k);
+
+                String col_name = cell_value.getString("column");
+                String val = cell_value.getString("value");
+
+                //get the column header
+                WikiColumnHeader col = findColumn(col_name);
+                if (col == null) {
+                    continue;
+                }
+                WikiTableCell cell = new WikiTableCell(col);
+                cell.value = val;
+                cells[i][k] = cell;
+            }
+        }
+    }
+
+    /**
+     * Find a column based on its name.
+     *
+     * @param col_name
+     * @return
+     */
+    public WikiColumnHeader findColumn(String col_name) {
+        WikiColumnHeader[] cols = columns[columns.length - 1];
+        for (int k = 0; k < cols.length; k++) {
+            if (cols[k].column_name.equals(col_name)) {
+                return cols[k];
+            }
+        }
+        return null;
     }
 }

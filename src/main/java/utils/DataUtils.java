@@ -1,9 +1,13 @@
 package utils;
 
+import datastruct.wikitable.WikiTable;
+import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.map.hash.TIntDoubleHashMap;
 import gnu.trove.map.hash.TIntIntHashMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import representation.CategoryRepresentation;
 
@@ -12,6 +16,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Created by besnik on 12/8/17.
@@ -376,4 +381,175 @@ public class DataUtils {
         });
     }
 
+
+    /**
+     * Loads the category representation similarity. The category labels are hashed in order to save space.
+     *
+     * @param file
+     * @return
+     */
+    public static TIntObjectHashMap<TIntDoubleHashMap> loadCategoryRepSim(String file) throws IOException {
+        TIntObjectHashMap<TIntDoubleHashMap> sim = new TIntObjectHashMap<>();
+
+        String line;
+        BufferedReader reader = FileUtils.getFileReader(file);
+
+        while ((line = reader.readLine()) != null) {
+            String[] data = line.split("\t");
+            int cat_a = data[0].hashCode();
+            int cat_b = data[1].hashCode();
+
+            double score = Double.parseDouble(data[5]);
+
+            if (!sim.containsKey(cat_a)) {
+                sim.put(cat_a, new TIntDoubleHashMap());
+            }
+            sim.get(cat_a).put(cat_b, score);
+
+        }
+        return sim;
+    }
+
+    /**
+     * Find the lowest common ancestors between two category sets which we have extracted from an entity.
+     *
+     * @param article_a_cats
+     * @param article_b_cats
+     * @param cat_to_map
+     * @return
+     */
+    public static Set<String> findLCACategories(Set<String> article_a_cats, Set<String> article_b_cats, Map<String, CategoryRepresentation> cat_to_map) {
+        int max_level_a = article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
+        int max_level_b = article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
+
+        //check first if they come from the same categories.
+        if (article_a_cats == null || article_b_cats == null) {
+            //return null in this case, indicating that the articles belong to exactly the same categories
+            return null;
+        }
+        boolean same_cats = article_a_cats.equals(article_b_cats);
+
+        /*
+             Else, we first find the lowest common ancestor between the categories of the two articles.
+             Additionally, we will do this only for the categories being in the deepest category hierarchy graph,
+             this allows us to avoid the match between very broad categories, and thus, we generate more
+             meaningful similarity matches.
+         */
+        if (same_cats) {
+            return article_a_cats;
+        }
+
+        for (String cat_a_label : article_a_cats) {
+            CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);
+            if (cat_a == null || cat_a.level < max_level_a) {
+                continue;
+            }
+
+            for (String cat_b_label : article_b_cats) {
+                CategoryRepresentation cat_b = cat_to_map.get(cat_b_label);
+                if (cat_b == null || cat_b.level < max_level_b) {
+                    continue;
+                }
+
+                //get the lowest common ancestors between the two categories
+                Set<CategoryRepresentation> common_ancestors = DataUtils.findCommonAncestor(cat_a, cat_b, cat_to_map);
+                if (common_ancestors == null || common_ancestors.isEmpty()) {
+                    continue;
+                }
+                return common_ancestors.stream().map(x -> x.label).collect(Collectors.toSet());
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Load the word vectors.
+     *
+     * @param file
+     * @return
+     * @throws IOException
+     */
+    public static Map<String, TDoubleArrayList> loadWord2Vec(String file) throws IOException {
+        Map<String, TDoubleArrayList> w2v = new HashMap<>();
+
+        String line;
+        BufferedReader reader = FileUtils.getFileReader(file);
+        while ((line = reader.readLine()) != null) {
+            String[] data = line.split("\\s+");
+
+            String word = data[0];
+            TDoubleArrayList vec = new TDoubleArrayList();
+            for (int i = 1; i < data.length; i++) {
+                vec.add(Double.parseDouble(data[i]));
+            }
+            w2v.put(word, vec);
+        }
+
+        return w2v;
+    }
+
+    /**
+     * Load the tables for the group of entities of interest.
+     *
+     * @param structured_json
+     * @param entities
+     * @return
+     * @throws IOException
+     */
+    public static Map<String, Map<String, List<WikiTable>>> loadTables(String structured_json, Set<String> entities, boolean loadColValueDist) throws IOException {
+        Map<String, Map<String, List<WikiTable>>> tbls = new HashMap<>();
+
+        String line;
+        BufferedReader reader = FileUtils.getFileReader(structured_json);
+        while ((line = reader.readLine()) != null) {
+            JSONObject json = new JSONObject(line);
+            String entity = json.getString("entity");
+
+            if (!entities.contains(entity)) {
+                continue;
+            }
+
+            Map<String, List<WikiTable>> section_tables = new HashMap<>();
+            JSONArray sections = json.getJSONArray("sections");
+            for (int i = 0; i < sections.length(); i++) {
+                JSONObject section = sections.getJSONObject(i);
+                String section_label = section.getString("section");
+
+                JSONArray tables = section.getJSONArray("tables");
+                List<WikiTable> table_list = new ArrayList<>();
+                for (int k = 0; k < tables.length(); k++) {
+                    JSONObject table = tables.getJSONObject(k);
+
+                    WikiTable tbl = new WikiTable();
+                    tbl.loadFromStructuredJSON(table, loadColValueDist);
+                    table_list.add(tbl);
+                }
+                section_tables.put(section_label, table_list);
+            }
+            tbls.put(entity, section_tables);
+        }
+
+        return tbls;
+    }
+
+    /**
+     * Compute the cosine similarity between two vectors.
+     *
+     * @param a
+     * @param b
+     * @return
+     */
+    public static double computeCosineSim(TDoubleArrayList a, TDoubleArrayList b) {
+        double score = 0.0;
+
+        for (int i = 0; i < a.size(); i++) {
+            score += a.get(i) * b.get(i);
+        }
+        double sum_a = Arrays.stream(a.toArray()).map(x -> Math.pow(x, 2)).sum();
+        double sum_b = Arrays.stream(b.toArray()).map(x -> Math.pow(x, 2)).sum();
+
+        score /= Math.sqrt(sum_a) * Math.sqrt(sum_b);
+        return score;
+    }
 }

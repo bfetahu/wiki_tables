@@ -8,7 +8,6 @@ import utils.DataUtils;
 
 import java.io.Serializable;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Created by besnik on 12/8/17.
@@ -201,52 +200,16 @@ public class TableCandidateFeatures implements Serializable {
         Set<String> article_a_cats = article_categories.get(article_a);
         Set<String> article_b_cats = article_categories.get(article_b);
 
-        //check first if they come from the same categories.
-        if (article_a_cats == null || article_b_cats == null) {
-            //return null in this case, indicating that the articles belong to exactly the same categories
-            return null;
+        Set<String> lca_cats = DataUtils.findLCACategories(article_a_cats, article_b_cats, cat_to_map);
+        if (lca_cats != null) {
+            TableCandidateFeatures tc = new TableCandidateFeatures(article_a, article_b);
+            tc.setArticleACategories(article_a_cats, cat_to_map);
+            tc.setArticleBCategories(article_b_cats, cat_to_map);
+            tc.lowest_common_ancestors.addAll(lca_cats);
+
+            return tc;
         }
-        boolean same_cats = article_a_cats.equals(article_b_cats);
-
-        /*
-             Else, we first find the lowest common ancestor between the categories of the two articles.
-             Additionally, we will do this only for the categories being in the deepest category hierarchy graph,
-             this allows us to avoid the match between very broad categories, and thus, we generate more
-             meaningful similarity matches.
-         */
-        TableCandidateFeatures matching = new TableCandidateFeatures(article_a, article_b);
-        matching.setArticleACategories(article_a_cats, cat_to_map);
-        matching.setArticleBCategories(article_b_cats, cat_to_map);
-
-        if (same_cats) {
-            matching.lowest_common_ancestors.addAll(article_a_cats);
-            return matching;
-        }
-
-        for (String cat_a_label : article_a_cats) {
-            CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);
-            if (cat_a == null || cat_a.level < matching.getMaxLevelA()) {
-                continue;
-            }
-
-            for (String cat_b_label : article_b_cats) {
-                CategoryRepresentation cat_b = cat_to_map.get(cat_b_label);
-                if (cat_b == null || cat_b.level < matching.getMaxLevelB()) {
-                    continue;
-                }
-
-                //get the lowest common ancestors between the two categories
-                Set<CategoryRepresentation> common_ancestors = DataUtils.findCommonAncestor(cat_a, cat_b, cat_to_map);
-                if (common_ancestors == null || common_ancestors.isEmpty()) {
-                    continue;
-                }
-                matching.lowest_common_ancestors.addAll(common_ancestors.stream().map(x -> x.label).collect(Collectors.toSet()));
-            }
-        }
-        if (matching.lowest_common_ancestors.isEmpty()) {
-            return null;
-        }
-        return matching;
+        return null;
     }
 
 

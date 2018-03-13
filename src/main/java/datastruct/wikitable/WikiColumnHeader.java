@@ -16,8 +16,12 @@ public class WikiColumnHeader implements Serializable {
     public int col_span = 1;
     public int row_span = 1;
 
+    public WikiColumnHeader() {
+
+    }
+
     //store the distribution of the data for this column
-    private Map<Object, Integer> value_dist;
+    public Map<Object, Integer> value_dist;
 
     public WikiColumnHeader(String column_header_markup) {
         //check if it first contains a colspan

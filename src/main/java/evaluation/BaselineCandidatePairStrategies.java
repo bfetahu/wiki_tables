@@ -1,10 +1,10 @@
 package evaluation;
 
 import datastruct.TableCandidateFeatures;
-import datastruct.WikiAnchorGraph;
 import io.FileUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import representation.CategoryRepresentation;
+import representation.WikiAnchorGraph;
 import utils.DataUtils;
 
 import java.io.BufferedReader;
@@ -66,7 +66,7 @@ public class BaselineCandidatePairStrategies {
         if (option.equals("level")) {
             computeEntityPairTaxonomyLevelCoverage(article_categories, category_path, out_dir);
         } else if (option.equals("rep_sim")) {
-            computeCategoryRepSimilarityCoverage(category_path, all_pairs, out_dir);
+            computeCategoryRepSimilarityCoverage(category_path, article_categories, all_pairs, out_dir);
         } else if (option.equals("simrank")) {
             computeSimRankGraphSimple(damping_factor, iterations, all_pairs, anchor_data, out_dir, wiki_articles);
         } else if (option.equals("greedy")) {
@@ -366,9 +366,10 @@ public class BaselineCandidatePairStrategies {
      * @param out_dir
      * @param cat_rep_sim
      */
-    public static void computeCategoryRepSimilarityCoverage(String cat_rep_path, String cat_rep_sim, String out_dir) throws IOException {
+    public static void computeCategoryRepSimilarityCoverage(String cat_rep_path, String article_categories, String cat_rep_sim, String out_dir) throws IOException {
         CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep_path);
         Map<String, Map<String, Double>> entity_cat_rep_score = loadCategorySimilarity(cat, seed_entities, cat_rep_sim);
+        cat_entities = DataUtils.readCategoryMappingsWiki(article_categories, null);
 
         double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 5.0, 10.0, Double.MAX_VALUE};
 
@@ -396,8 +397,12 @@ public class BaselineCandidatePairStrategies {
             for (double val : cutoffs) {
                 Set<String> sub_cats = category_info.entrySet().stream().filter(s -> s.getValue() <= val).map(s -> s.getKey()).collect(Collectors.toSet());
                 Set<String> sub_entities = new HashSet<>();
-                sub_cats.stream().filter(s -> cat_entities.containsKey(s)).forEach(s -> sub_entities.addAll(cat_entities.get(s).stream().filter(e -> filter_entities.contains(e)).collect(Collectors.toList())));
 
+                if (sub_cats != null && !sub_cats.isEmpty()) {
+                    //TODO: the error is happening in this line.
+                    sub_cats.stream().filter(s -> cat_entities.containsKey(s)).forEach(s -> sub_entities.addAll(cat_entities.get(s)));
+                    sub_entities.retainAll(filter_entities);
+                }
 
                 int candidate_total = sub_entities.size();
                 sub_entities.retainAll(gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>());
@@ -519,14 +524,12 @@ public class BaselineCandidatePairStrategies {
      */
     public static void traverseEntityCats(Set<String> seed_entities, CategoryRepresentation cat, Map<String, Set<String>> cat_entity) {
         if (!cat.entities.isEmpty()) {
-            for (String entity : seed_entities) {
-                if (cat.entities.contains(entity)) {
-                    if (!cat_entity.containsKey(cat.label)) {
-                        cat_entity.put(cat.label, new HashSet<>());
-                    }
-                    cat_entity.get(cat.label).add(entity);
+            seed_entities.stream().filter(entity -> cat.entities.contains(entity)).forEach(entity -> {
+                if (!cat_entity.containsKey(cat.label)) {
+                    cat_entity.put(cat.label, new HashSet<>());
                 }
-            }
+                cat_entity.get(cat.label).add(entity);
+            });
         }
 
         //we proceed to the children of this category

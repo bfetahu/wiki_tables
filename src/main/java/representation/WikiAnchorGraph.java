@@ -1,4 +1,4 @@
-package datastruct;
+package representation;
 
 import com.google.common.collect.Sets;
 import gnu.trove.map.hash.TIntDoubleHashMap;
