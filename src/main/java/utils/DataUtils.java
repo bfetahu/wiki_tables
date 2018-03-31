@@ -9,6 +9,7 @@ import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import representation.CategoryEntityGraph;
 import representation.CategoryRepresentation;
 
 import java.io.BufferedReader;
@@ -583,6 +584,45 @@ public class DataUtils {
             } else {
                 for (int i = 0; i < w2v_arr.length; i++) {
                     avg_a.set(i, avg_a.get(i) + w2v_arr[i]);
+                }
+            }
+        }
+
+        TDoubleArrayList avg = new TDoubleArrayList();
+        for (double val : avg_a.toArray()) {
+            double score = val / avg_a.size();
+            avg.add(score);
+        }
+        return avg;
+    }
+
+    /**
+     * Generate an average word vector for a given text.
+     *
+     * @param cats
+     * @param ceg
+     * @return
+     */
+    public static TDoubleArrayList computeAverageWordVector(Set<String> cats, CategoryEntityGraph ceg) {
+        if (cats == null || cats.isEmpty() || ceg.graph_embedding == null) {
+            return null;
+        }
+
+
+        //compute average word vectors
+        TDoubleArrayList avg_a = new TDoubleArrayList();
+        for (String cat : cats) {
+            int cat_a_id = ceg.node_index.get(cat);
+            if (!ceg.graph_embedding.containsKey(cat_a_id)) {
+                continue;
+            }
+            TDoubleArrayList emb = ceg.graph_embedding.get(cat_a_id);
+
+            if (avg_a.isEmpty()) {
+                avg_a.addAll(emb);
+            } else {
+                for (int i = 0; i < avg_a.size(); i++) {
+                    avg_a.set(i, avg_a.get(i) + emb.get(i));
                 }
             }
         }

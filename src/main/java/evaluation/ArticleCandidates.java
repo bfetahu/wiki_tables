@@ -114,12 +114,15 @@ public class ArticleCandidates {
         header.append("entity_a\tentity_b\tmin_cat_rep_sim\tmax_cat_rep_sim\tmean_cat_rep_sim\t");
         header.append("cat_level_diff_lca\tmin_shortest_path_lca\tmax_shortest_path_lca\tmean_shortest_path_lca\t");
         header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\tmean_distance_col\tmin_col_w2v_sim\tmax_col_w2v_sim\tmean_col_w2v_sim\t");
-        header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\tabs_sim\tlabel\n");
+        header.append("e_n2v_ec\tavg_n2v_cat_sim\tcat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\tabs_sim\tlabel\n");
         FileUtils.saveText(header.toString(), out_dir + "/candidate_features.tsv");
 
         //since we reuse the average word vectors we create them first and then reuse.
         Map<String, TDoubleArrayList> avg_w2v = new HashMap<>();
         seed_entities.forEach(entity -> avg_w2v.put(entity, DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec)));
+        //compute the average vectors of the categories of an entity.
+        Map<String, TDoubleArrayList> avg_cat_n2v = new HashMap<>();
+        seed_entities.forEach(entity -> avg_cat_n2v.put(entity, DataUtils.computeAverageWordVector(entity_cats.get(entity), ceg)));
 
         for (String entity : seed_entities) {
             if (!tables.containsKey(entity) || finished_gt_seeds.contains(entity)) {
@@ -153,13 +156,17 @@ public class ArticleCandidates {
 
                 //add all the node2vec similarities for the instances in the table
                 double[] cat_emb_sim = computeCategoryEmbeddSim(entity_cats_a, entity_cats_candidate);
+                double e_n2v_ec = DataUtils.computeCosineSim(ceg.getEmbeddingByKey(entity), ceg.getEmbeddingByKey(entity_candidate));
+                double avg_cat_n2v_sim = DataUtils.computeCosineSim(avg_cat_n2v.get(entity), avg_cat_n2v.get(entity_candidate));
 
+                //add the features.
                 sb.append(entity).append("\t").append(entity_candidate).append("\t");
 
                 IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
                 IntStream.range(0, lca_features.length).forEach(i -> sb.append(lca_features[i]).append("\t"));
                 IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
                 IntStream.range(0, cat_emb_sim.length).forEach(i -> sb.append(cat_emb_sim[i]).append("\t"));
+                sb.append(e_n2v_ec).append("\t").append(avg_cat_n2v_sim).append("\t");
 
 
                 //compute the w2v sim between the entity abstracts
@@ -282,11 +289,8 @@ public class ArticleCandidates {
                     System.out.printf("Categories %finished_gt_seeds \t %finished_gt_seeds are missing.\n", cat_a, cat_b);
                     continue;
                 }
-                int cat_a_id = ceg.node_index.get(cat_a);
-                int cat_b_id = ceg.node_index.get(cat_b);
-
-                TDoubleArrayList cat_a_embedd = ceg.graph_embedding.get(cat_a_id);
-                TDoubleArrayList cat_b_embedd = ceg.graph_embedding.get(cat_b_id);
+                TDoubleArrayList cat_a_embedd = ceg.getEmbeddingByKey(cat_a);
+                TDoubleArrayList cat_b_embedd = ceg.getEmbeddingByKey(cat_b);
 
                 //compute the cosine similarity
                 double score = 0;

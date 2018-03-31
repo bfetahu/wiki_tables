@@ -407,4 +407,31 @@ public class CategoryEntityGraph {
         }
         return g;
     }
+
+
+    /**
+     * Return the embeddings of the given key if it exists in the index.
+     *
+     * @param key
+     * @return
+     */
+    public TDoubleArrayList getEmbeddingByKey(String key) {
+        if (!node_index.containsKey(key) || graph_embedding == null) {
+            return null;
+        }
+        return graph_embedding.get(node_index.get(key));
+    }
+
+    /**
+     * Get the embeddings for a given index in our graph.
+     *
+     * @param index
+     * @return
+     */
+    public TDoubleArrayList getEmbeddingByIndex(int index) {
+        if (graph_embedding == null) {
+            return null;
+        }
+        return graph_embedding.get(index);
+    }
 }
