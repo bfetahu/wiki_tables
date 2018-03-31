@@ -621,4 +621,6 @@ public class DataUtils {
         System.out.printf("Loaded entity abstracts with %d entries.\n", entity_abstracts.size());
         return entity_abstracts;
     }
+
+
 }
