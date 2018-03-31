@@ -1,35 +1,41 @@
 package test;
 
 import io.FileUtils;
-import representation.CategoryRepresentation;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by besnik on 3/12/18.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
+        String[] lines = FileUtils.readText("/Users/besnik/Documents/L3S/wiki_tables/data/evaluation/coverage/coverage_experiments/entity_embedding_coverage_sorted.tsv").split("\n");
+        Map<String, Map<Double, Double>> entity_overlap = new HashMap<>();
 
-    }
+        for (String line : lines) {
+            String[] data = line.split("\t");
+            if (data[1].equals("0")) {
+                continue;
+            }
 
+            String entity = data[0];
+            double score = Double.parseDouble(data[2]);
+            double overlap = Double.parseDouble(data[6]);
 
-    /**
-     * Write the constructed category taxonomy.
-     *
-     * @param out_file
-     * @param sb
-     */
-    public static void printCategories(String out_file, StringBuffer sb, CategoryRepresentation cat) {
-        if (sb.length() > 10000) {
-            FileUtils.saveText(sb.toString(), out_file, true);
-            sb.delete(0, sb.length());
+            if (!entity_overlap.containsKey(entity)) {
+                entity_overlap.put(entity, new HashMap<>());
+            }
+            entity_overlap.get(entity).put(score, overlap);
         }
 
-        for (String child_label : cat.children.keySet()) {
-            sb.append(cat.label).append("\t").append(cat.level).append("\t").append(child_label).append("\t").append(cat.children.get(child_label).level).append("\n");
-            printCategories(out_file, sb, cat.children.get(child_label));
-        }
+        double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
 
-        FileUtils.saveText(sb.toString(), out_file, true);
-        sb.delete(0, sb.length());
+        for (String entity : entity_overlap.keySet()) {
+            for (double cutoff : cutoffs) {
+                double coverage = entity_overlap.get(entity).entrySet().stream().filter(s -> s.getKey()  <= cutoff).mapToDouble(s -> s.getValue()).sum();
+                System.out.printf("%s\t%.2f\t%.2f\n", entity, cutoff, coverage);
+            }
+        }
     }
 }

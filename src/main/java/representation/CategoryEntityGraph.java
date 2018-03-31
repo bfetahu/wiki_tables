@@ -96,7 +96,6 @@ public class CategoryEntityGraph {
             int node_id = Integer.parseInt(data[1]);
             node_index.put(node_label, node_id);
         }
-
         current_node_id = node_index.values().stream().mapToInt(x -> x).max().getAsInt() + 1;
         return true;
     }

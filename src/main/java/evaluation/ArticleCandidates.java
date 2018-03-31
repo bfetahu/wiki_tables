@@ -60,13 +60,8 @@ public class ArticleCandidates {
         cat_weights = DataUtils.computeCategoryAttributeWeights(attribute_max_level_category, cat_to_map);
     }
 
-    public ArticleCandidates() {
-    }
-
-
     public static void main(String[] args) throws IOException, InterruptedException {
         String cat_rep_path = "", out_dir = "", table_data = "";
-
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-cat_rep")) {
                 cat_rep_path = args[++i];
@@ -122,18 +117,25 @@ public class ArticleCandidates {
         header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\tabs_sim\tlabel\n");
         FileUtils.saveText(header.toString(), out_dir + "/candidate_features.tsv");
 
-        StringBuffer sb = new StringBuffer();
+        //since we reuse the average word vectors we create them first and then reuse.
+        Map<String, TDoubleArrayList> avg_w2v = new HashMap<>();
+        seed_entities.forEach(entity -> avg_w2v.put(entity, DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec)));
+
         for (String entity : seed_entities) {
             if (!tables.containsKey(entity) || finished_gt_seeds.contains(entity)) {
                 continue;
             }
-            TDoubleArrayList entity_abs_w2v_avg = DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec);
+            TDoubleArrayList entity_abs_w2v_avg = avg_w2v.get(entity);
             Set<String> entity_cats_a = entity_cats.get(entity);
-            for (String entity_candidate : filter_entities) {
+            List<String> feature_lines = new ArrayList<>();
+            List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
+
+            filter_entities.parallelStream().forEach(entity_candidate -> {
                 if (!tables.containsKey(entity_candidate)) {
-                    continue;
+                    return;
                 }
-                TDoubleArrayList entity_candidate_abs_w2v_avg = DataUtils.computeAverageWordVector(entity_abstracts.get(entity_candidate), word2vec);
+                StringBuffer sb = new StringBuffer();
+                TDoubleArrayList entity_candidate_abs_w2v_avg = avg_w2v.get(entity_candidate);
                 Set<String> entity_cats_candidate = entity_cats.get(entity);
 
                 //create for each of these pairs the features
@@ -163,15 +165,20 @@ public class ArticleCandidates {
                 //compute the w2v sim between the entity abstracts
                 double abs_sim = DataUtils.computeCosineSim(entity_abs_w2v_avg, entity_candidate_abs_w2v_avg);
                 sb.append(abs_sim).append("\t").append(label).append("\n");
+                concurrent_fl.add(sb.toString());
+            });
 
+            StringBuffer sb = new StringBuffer();
+            for (String line : concurrent_fl) {
+                sb.append(line);
                 if (sb.length() > 10000) {
                     FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
                     sb.delete(0, sb.length());
                 }
             }
+            FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
             System.out.printf("Finished processing features for entity %s.\n", entity);
         }
-        FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
     }
 
     /**

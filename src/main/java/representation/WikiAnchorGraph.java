@@ -9,6 +9,7 @@ import io.FileUtils;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.text.DecimalFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -434,8 +435,8 @@ public class WikiAnchorGraph {
      * @param pairs
      * @param out_dir
      */
-    public Map<String, Map<String, Double>> computeMilneWittenScorePairs(Map<String, Set<String>> pairs, String out_dir) {
-        Map<String, Map<String, Double>> pair_scores = new HashMap<>();
+    public Map<String, Map<String, Set<String>>> computeMilneWittenScorePairs(Map<String, Set<String>> pairs, String out_dir, DecimalFormat df) {
+        Map<String, Map<String, Set<String>>> pair_scores = new HashMap<>();
         int N = entities.size();
         String out_file = out_dir + "/relatedness_mw.tsv";
         StringBuffer sb = new StringBuffer();
@@ -455,12 +456,13 @@ public class WikiAnchorGraph {
                 }
 
                 int article_b = index_entities.get(article_b_title);
-                double score = computeMilneWittenScore(N, article_a, article_b);
+                String score = df.format(computeMilneWittenScore(N, article_a, article_b));
 
-                if (score == 0) {
-                    continue;
+
+                if(!pair_scores.get(article_a_title).containsKey(score)){
+                    pair_scores.get(article_a_title).put(score, new HashSet<>());
                 }
-                pair_scores.get(article_a_title).put(article_b_title, score);
+                pair_scores.get(article_a_title).get(score).add(article_b_title);
                 sb.append(article_a).append("\t").append(article_a_title).append("\t").append(article_b).append("\t").append(article_b_title).append("\t").append(score).append("\n");
 
                 if (sb.length() > 10000) {

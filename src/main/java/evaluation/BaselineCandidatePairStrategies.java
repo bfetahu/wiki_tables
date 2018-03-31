@@ -1,6 +1,7 @@
 package evaluation;
 
 import datastruct.TableCandidateFeatures;
+import gnu.trove.list.array.TDoubleArrayList;
 import io.FileUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import representation.CategoryRepresentation;
@@ -9,6 +10,7 @@ import utils.DataUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.text.DecimalFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -26,12 +28,16 @@ public class BaselineCandidatePairStrategies {
     public static Set<String> seed_entities;
 
 
+    //load the word embeddings.
+    public static Map<String, TDoubleArrayList> node2vec;
+
     //similarity cutoffs
     public static double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
 
     public static void main(String[] args) throws IOException {
         String all_pairs = "", out_dir = "", option = "", article_categories = "",
-                category_path = "", anchor_data = "", wiki_articles = "", cat_type = "";
+                category_path = "", anchor_data = "", wiki_articles = "",
+                cat_type = "";
         double damping_factor = 0.6;
         int iterations = 5;
 
@@ -63,12 +69,16 @@ public class BaselineCandidatePairStrategies {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             } else if (args[i].equals("-cat_type")) {
                 cat_type = args[++i];
+            } else if (args[i].equals("-node2vec")) {
+                node2vec = DataUtils.loadWord2Vec(args[++i]);
             }
         }
 
         //evaluate the different candidate pair strategies.
         if (option.equals("level")) {
             computeEntityPairCategoryCoverage(article_categories, category_path, out_dir, cat_type);
+        } else if (option.equals("level_debug")) {
+            debugEntityPairCategoryCoverage(article_categories, category_path, out_dir);
         } else if (option.equals("rep_sim")) {
             computeCategoryRepSimilarityCoverage(category_path, article_categories, all_pairs, out_dir);
         } else if (option.equals("simrank")) {
@@ -79,6 +89,87 @@ public class BaselineCandidatePairStrategies {
             computeMWRelatednessScores(wiki_articles, anchor_data, out_dir);
         } else if (option.equals("lca_scoring")) {
             scoreLCATableCandidatesCategoryRep(category_path, article_categories, out_dir);
+        } else if (option.equals("n2vec_entity")) {
+            computeNode2VecCoverage(article_categories, category_path, out_dir, true);
+        } else if (option.equals("n2vec_category")) {
+            computeNode2VecCoverage(article_categories, category_path, out_dir, false);
+        }
+    }
+
+    /**
+     * Compute the coverage of ground truth entities by assessing the similarity of GT entities with other candidate
+     * entities based on the node2vec embeddings or the category similarity based on node2vec.
+     *
+     * @param out_dir
+     * @param isEntity
+     * @param article_categories
+     * @param category_path
+     */
+    public static void computeNode2VecCoverage(String article_categories, String category_path, String out_dir, boolean isEntity) throws IOException {
+        if (!isEntity) {
+            loadEntityCategoryDataStructures(article_categories, category_path);
+        }
+
+        //check for each entity the coverage similarity.
+        for (String entity : seed_entities) {
+            TDoubleArrayList entity_emb = node2vec.get(entity.replaceAll(" ", "_"));
+            Set<String> gt_entities = gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>();
+            int gt_total = gt_entities.size();
+
+            DecimalFormat df = new DecimalFormat("#.00");
+            Map<Double, Set<String>> candidates = new TreeMap<>();
+
+            if (isEntity) {
+                for (String candidate_entity : filter_entities) {
+                    TDoubleArrayList candidate_entity_emb = node2vec.get(candidate_entity.replaceAll(" ", "_"));
+                    double score = Double.parseDouble(df.format(DataUtils.computeCosineSim(entity_emb, candidate_entity_emb)));
+                    if (!candidates.containsKey(score)) {
+                        candidates.put(score, new HashSet<>());
+                    }
+                    candidates.get(score).add(candidate_entity);
+                }
+            } else {
+                List<CategoryRepresentation> categories = entity_cats.get(entity).stream().filter(cat -> cat_to_map.containsKey(cat)).map(cat -> cat_to_map.get(cat)).collect(Collectors.toList());
+                for (CategoryRepresentation cat : categories) {
+                    TDoubleArrayList cat_emb = node2vec.get(cat.label.replaceAll(" ", "_"));
+                    for (String candidate_category : cat_to_map.keySet()) {
+                        double score = 0.0;
+                        if (cat.label.equals(candidate_category)) {
+                            score = 1.0;
+                        } else {
+                            TDoubleArrayList candidate_cat_emb = node2vec.get(candidate_category.replaceAll(" ", "_"));
+                            score = Double.parseDouble(df.format(DataUtils.computeCosineSim(cat_emb, candidate_cat_emb)));
+                        }
+
+                        if (!candidates.containsKey(score)) {
+                            candidates.put(score, new HashSet<>());
+                        }
+                        candidates.get(score).addAll(cat_to_map.get(candidate_category).entities);
+                    }
+                }
+            }
+
+            //output the data
+            StringBuffer sb = new StringBuffer();
+            Double[] scores = new Double[candidates.size()];
+            candidates.keySet().toArray(scores);
+            for (int i = 0; i < scores.length; i++) {
+                double score = scores[i];
+                Set<String> sub_entities = new HashSet<>();
+                candidates.keySet().stream().filter(s -> s >= score).forEach(s -> sub_entities.addAll(candidates.get(s)));
+                sub_entities.retainAll(filter_entities);
+
+                int candidate_total = sub_entities.size();
+                sub_entities.retainAll(gt_entities);
+
+                int overlapping = sub_entities.size();
+                int additional = candidate_total - overlapping;
+                double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
+                double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
+                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).append("\t").append(unaligned_ratio).append("\n");
+            }
+            String out_file = isEntity ? out_dir + "/entity_embedding_coverage.tsv" : out_dir + "/category_embedding_coverage.tsv";
+            FileUtils.saveText(sb.toString(), out_file, true);
         }
     }
 
@@ -91,7 +182,6 @@ public class BaselineCandidatePairStrategies {
      */
     public static void scoreLCATableCandidatesCategoryRep(String category_path, String article_categories, String out_dir) throws IOException {
         loadEntityCategoryDataStructures(article_categories, category_path);
-
         //load the article categories
         Map<String, Set<String>> entity_cats = DataUtils.readEntityCategoryMappingsWiki(article_categories, null);
         System.out.printf("Loaded %d categories, and %d entities", cat_to_map.size(), entity_cats.size());
@@ -115,7 +205,6 @@ public class BaselineCandidatePairStrategies {
             sb.append("\taligned_ratio[").append(cutoffs[i]).append("]\tunaligned_ratio[").append(cutoffs[i]).append("]");
         }
         sb.append("\n");
-
 
         StringBuffer sb_min = new StringBuffer(sb.toString());
         StringBuffer sb_max = new StringBuffer(sb.toString());
@@ -150,8 +239,8 @@ public class BaselineCandidatePairStrategies {
                 double sub_pairs_mean_unaligned_ratio = sub_pairs_mean_additional / (double) sub_pairs_mean_total;
 
                 sb_min.append("\t").append(sub_pairs_min_total).append("\t").append(sub_pairs_min_overlap).append("\t").append(sub_pairs_min_additional).append("\t").append(sub_pairs_min_aligned_ratio).append("\t").append(sub_pairs_min_unaligned_ratio);
-                sb_max.append("\t").append(sub_pairs_max_total).append("\t").append(sub_pairs_max_overlap).append("\t").append(sub_pairs_max_additional).append("\t").append(sub_pairs_max_aligned_ratio).append("\t").append(sub_pairs_max_unaligned_ratio);;
-                sb_mean.append("\t").append(sub_pairs_mean_total).append("\t").append(sub_pairs_mean_overlap).append("\t").append(sub_pairs_mean_additional).append("\t").append(sub_pairs_mean_aligned_ratio).append("\t").append(sub_pairs_mean_unaligned_ratio);;
+                sb_max.append("\t").append(sub_pairs_max_total).append("\t").append(sub_pairs_max_overlap).append("\t").append(sub_pairs_max_additional).append("\t").append(sub_pairs_max_aligned_ratio).append("\t").append(sub_pairs_max_unaligned_ratio);
+                sb_mean.append("\t").append(sub_pairs_mean_total).append("\t").append(sub_pairs_mean_overlap).append("\t").append(sub_pairs_mean_additional).append("\t").append(sub_pairs_mean_aligned_ratio).append("\t").append(sub_pairs_mean_unaligned_ratio);
             }
             sb_min.append("\n");
             sb_max.append("\n");
@@ -179,20 +268,16 @@ public class BaselineCandidatePairStrategies {
         wg.loadInDegreeAnchorGraph(anchor_data, out_dir);
 
         //compute the MW scores
+        DecimalFormat df = new DecimalFormat("#.00");
         Map<String, Set<String>> entity_pairs = new HashMap<>();
         seed_entities.forEach(e -> entity_pairs.put(e, filter_entities));
-        Map<String, Map<String, Double>> pair_scores = wg.computeMilneWittenScorePairs(entity_pairs, out_dir);
+        Map<String, Map<String, Set<String>>> pair_scores = wg.computeMilneWittenScorePairs(entity_pairs, out_dir, df);
         System.out.printf("Finished computing the MW scores for %d entities.\n", entity_pairs.size());
 
         //compute for different relatedness scores the number of relevant/irrelevant pairs.
         StringBuffer sb = new StringBuffer();
-        sb.append("entity\tlevel\tgt_total");
+        sb.append("entity\tscore\tgt_total\taligned\tunaligned\taligned_ratio\tunaligned_ratio\n");
 
-        for (int i = 0; i < cutoffs.length; i++) {
-            sb.append("\tall_candidates[").append(cutoffs[i]).append("]\toverlap[").append(cutoffs[i]).append("]\tunaligned_entities[").append(cutoffs[i]).append("]");
-            sb.append("\taligned_ratio[").append(cutoffs[i]).append("]\tunaligned_ratio[").append(cutoffs[i]).append("]");
-        }
-        sb.append("\n");
 
         for (String entity : seed_entities) {
             if (!pair_scores.containsKey(entity)) {
@@ -200,12 +285,11 @@ public class BaselineCandidatePairStrategies {
                 continue;
             }
 
-            Map<String, Double> sub_pairs = pair_scores.get(entity);
+            Map<String, Set<String>> sub_pairs = pair_scores.get(entity);
             //compute all the measures.
             int gt_total = gt_pairs.containsKey(entity) ? gt_pairs.get(entity).size() : 0;
-            sb.append(entity).append("\t").append(0).append("\t").append(gt_total);
-            for (double val : cutoffs) {
-                Set<String> sub_entities = sub_pairs.entrySet().stream().filter(s -> s.getValue() >= val).map(s -> s.getKey()).collect(Collectors.toSet());
+            for (String score : sub_pairs.keySet()) {
+                Set<String> sub_entities = sub_pairs.get(score);
                 int candidate_total = sub_entities.size();
                 sub_entities.retainAll(gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>());
 
@@ -213,9 +297,8 @@ public class BaselineCandidatePairStrategies {
                 int additional = candidate_total - overlapping;
                 double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
                 double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
-                sb.append("\t").append(candidate_total).append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).append("\t").append(unaligned_ratio);
+                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).append("\t").append(unaligned_ratio).append("\n");
             }
-            sb.append("\n");
         }
 
         FileUtils.saveText(sb.toString(), out_dir + "/mw_entity_pairs.tsv");
@@ -244,7 +327,9 @@ public class BaselineCandidatePairStrategies {
             int additional = candidate_total - overlapping;
             double aligned_ratio = (double) overlapping / gt_total;
             double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
-            sb.append(entity).append("\t").append(0).append("\t").append(gt_total).append("\t").append(candidate_total).append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).append("\t").append(unaligned_ratio).append("\n");
+            sb.append(entity).append("\t").append(0).append("\t").append(gt_total).append("\t").append(candidate_total).
+                    append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
+                    append("\t").append(unaligned_ratio).append("\n");
         }
         FileUtils.saveText(sb.toString(), out_file);
     }
@@ -336,6 +421,48 @@ public class BaselineCandidatePairStrategies {
     }
 
     /**
+     * DEBUG: Compute the coverage of entity pairs for table alignment if we pick entities that belong to the category
+     * directly associated with our seed entity and is the deepest in the Wikipedia category taxonomy.
+     *
+     * @param article_categories
+     * @param category_path
+     */
+    public static void debugEntityPairCategoryCoverage(String article_categories, String category_path, String out_dir) throws IOException {
+        loadEntityCategoryDataStructures(article_categories, category_path);
+        //we perform the experiments only for this subset.
+        System.out.println("Measuring coverage for " + gt_pairs.size() + " entities.");
+
+        for (String entity : seed_entities) {
+            StringBuffer sb = new StringBuffer();
+            List<CategoryRepresentation> categories = entity_cats.get(entity).stream().filter(cat -> cat_to_map.containsKey(cat)).map(cat -> cat_to_map.get(cat)).collect(Collectors.toList());
+            Map<String, Set<String>> cat_direct_debug = new HashMap<>();
+
+            // add the entities for debugging purposes.
+            categories.forEach(cat -> cat_direct_debug.put(cat.label, cat.entities));
+            categories.forEach(cat -> cat.parents.values().forEach(parent -> cat_direct_debug.put(cat.label + "\t" + parent.label, parent.entities)));
+
+            //check the overlap with each of the categories
+            Set<String> sub_gt_entities = gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>();
+            int gt_total = sub_gt_entities.size();
+            for (String cat : cat_direct_debug.keySet()) {
+                Set<String> sub_cat_entities = cat_direct_debug.get(cat);
+                int total = sub_cat_entities.size();
+
+                //check the overlap
+                sub_cat_entities.retainAll(sub_gt_entities);
+
+                double aligned_ratio = gt_total == 0 ? 0.0 : sub_cat_entities.size() / (double) gt_total;
+                double unaligned_ratio = (total - sub_cat_entities.size()) / (double) total;
+                int aligned = sub_cat_entities.size();
+                int unaligned = total - aligned;
+
+                sb.append(entity).append("\t").append(cat).append("\t").append(gt_total).append("\t").append(aligned).append("\t").append(unaligned).append("\t").append(aligned_ratio).append("\t").append(unaligned_ratio).append("\n");
+            }
+            FileUtils.saveText(sb.toString(), out_dir + "/category_taxonomy_same_level_debug.tsv", true);
+        }
+    }
+
+    /**
      * Compute the coverage of entity pairs for table alignment if we pick entities that belong to the category
      * directly associated with our seed entity and is the deepest in the Wikipedia category taxonomy.
      *
@@ -421,7 +548,6 @@ public class BaselineCandidatePairStrategies {
                 Set<String> sub_entities = new HashSet<>();
 
                 if (sub_cats != null && !sub_cats.isEmpty()) {
-                    //TODO: the error is happening in this line.
                     sub_cats.stream().filter(s -> cat_entities.containsKey(s)).forEach(s -> sub_entities.addAll(cat_entities.get(s)));
                     sub_entities.retainAll(filter_entities);
                 }
@@ -484,6 +610,7 @@ public class BaselineCandidatePairStrategies {
                 categories.stream().filter(cat -> cat.level == max_level).forEach(cat -> cat.parents.values().forEach(parent -> entity_pairs.addAll(parent.entities)));
             }
 
+            entity_pairs.retainAll(filter_entities);
             max_level_entities.put(entity, new AbstractMap.SimpleEntry<>(max_level, entity_pairs));
         }
         return max_level_entities;
