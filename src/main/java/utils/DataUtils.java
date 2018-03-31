@@ -419,15 +419,15 @@ public class DataUtils {
      * @return
      */
     public static Set<String> findLCACategories(Set<String> article_a_cats, Set<String> article_b_cats, Map<String, CategoryRepresentation> cat_to_map) {
-        int max_level_a = article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
-        int max_level_b = article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
-
         //check first if they come from the same categories.
         if (article_a_cats == null || article_b_cats == null) {
             //return null in this case, indicating that the articles belong to exactly the same categories
             return null;
         }
         boolean same_cats = article_a_cats.equals(article_b_cats);
+        int max_level_a = article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
+        int max_level_b = article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
+
 
         /*
              Else, we first find the lowest common ancestor between the categories of the two articles.
@@ -541,6 +541,9 @@ public class DataUtils {
      * @return
      */
     public static double computeCosineSim(TDoubleArrayList a, TDoubleArrayList b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+            return 0.0;
+        }
         double score = 0.0;
 
         for (int i = 0; i < a.size(); i++) {
@@ -551,5 +554,71 @@ public class DataUtils {
 
         score /= Math.sqrt(sum_a) * Math.sqrt(sum_b);
         return score;
+    }
+
+
+    /**
+     * Generate an average word vector for a given text.
+     *
+     * @param text
+     * @param word2vec
+     * @return
+     */
+    public static TDoubleArrayList computeAverageWordVector(String text, Map<String, TDoubleArrayList> word2vec) {
+        if (text == null || text.isEmpty() || word2vec == null) {
+            return null;
+        }
+        String[] a = text.toLowerCase().split(" ");
+
+        //compute average word vectors
+        TDoubleArrayList avg_a = new TDoubleArrayList();
+        for (String key : a) {
+            if (!word2vec.containsKey(key)) {
+                continue;
+            }
+
+            double[] w2v_arr = word2vec.get(key).toArray();
+            if (avg_a.isEmpty()) {
+                avg_a.addAll(w2v_arr);
+            } else {
+                for (int i = 0; i < w2v_arr.length; i++) {
+                    avg_a.set(i, avg_a.get(i) + w2v_arr[i]);
+                }
+            }
+        }
+
+        TDoubleArrayList avg = new TDoubleArrayList();
+        for (double val : avg_a.toArray()) {
+            double score = val / avg_a.size();
+            avg.add(score);
+        }
+
+        return avg;
+    }
+
+    /**
+     * Load the lead section  or abstract of Wikipedia pages.
+     *
+     * @param file
+     * @return
+     * @throws IOException
+     */
+    public static Map<String, String> loadEntityAbstracts(String file) throws IOException {
+        //load the entity abstracts
+        Map<String, String> entity_abstracts = new HashMap<>();
+        BufferedReader reader = FileUtils.getFileReader(file);
+        String line;
+        while ((line = reader.readLine()) != null) {
+            String[] data = line.split("\t");
+
+            if (data.length != 2) {
+                continue;
+            }
+            String entity = data[0].trim();
+            String abstract_text = data[1].toLowerCase().replaceAll("[^a-z0-9 ]", " ").replaceAll("<ref(.*?)</ref>", "").replaceAll("\\{\\{cite(.*?)\\}\\}", "");
+            entity_abstracts.put(entity, abstract_text);
+        }
+        System.out.printf("Loaded entity abstracts with %d entries.\n", entity_abstracts.size());
+        return entity_abstracts;
     }
 }

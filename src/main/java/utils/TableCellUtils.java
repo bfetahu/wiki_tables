@@ -40,7 +40,7 @@ public class TableCellUtils {
         table_formatting.add(new AbstractMap.SimpleEntry<>("halign:", "halign:[\"|'](.*?)[\"|']"));
         table_formatting.add(new AbstractMap.SimpleEntry<>("text-align:", "text-align:[\"|']?(.*?);[\"|']?"));
         table_formatting.add(new AbstractMap.SimpleEntry<>("bgcolor", "-?bgcolor=[\"|'](.*?)[\"|']"));
-        table_formatting.add(new AbstractMap.SimpleEntry<>("align", "align\\s?=\\s?[\\\"|']?[a-zA-Z]*[\\\"|']?"));
+        table_formatting.add(new AbstractMap.SimpleEntry<>("align", "align\\finished_gt_seeds?=\\finished_gt_seeds?[\\\"|']?[a-zA-Z]*[\\\"|']?"));
         table_formatting.add(new AbstractMap.SimpleEntry<>("flagicon", "flagicon\\|?"));
         table_formatting.add(new AbstractMap.SimpleEntry<>("size=", "size=[\"|']?(.*?)[\"|']?[a-z%]+"));
         table_formatting.add(new AbstractMap.SimpleEntry<>("flag", "(?i)Flag\\|?"));

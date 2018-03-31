@@ -102,7 +102,7 @@ public class DBUtils {
                 FileUtils.saveText(sb.toString(), "entity_tables_db.txt", true);
                 sb.delete(0, sb.length());
             } catch (Exception e) {
-                System.out.printf("Error %s processing line %s.\n", e.getMessage(), line);
+                System.out.printf("Error %finished_gt_seeds processing line %finished_gt_seeds.\n", e.getMessage(), line);
             }
         }
 

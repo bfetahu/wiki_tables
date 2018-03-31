@@ -126,7 +126,7 @@ public class TableExtractor {
                 if (total_tables != 0) {
                     FileUtils.saveText(et.toString(), out_dir, true);
                     //store the object, which contains the entity data and the extracted tables.
-                    System.out.printf("Finished processing entity %s and extracted %d tables, stored the data in %s.\n", entity.title, total_tables, file_name);
+                    System.out.printf("Finished processing entity %finished_gt_seeds and extracted %d tables, stored the data in %finished_gt_seeds.\n", entity.title, total_tables, file_name);
                 }
             } catch (Exception e) {
                 System.out.println("Error processing entity" + entity_name + "\t" + e.getMessage());

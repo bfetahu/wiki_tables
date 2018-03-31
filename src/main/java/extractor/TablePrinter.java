@@ -26,7 +26,7 @@ public class TablePrinter {
             printTables(in_file, out_file);
         } catch (Exception e) {
             e.printStackTrace();
-            System.out.printf("Error processing file %s with message %s.\n", in_file, e.getMessage());
+            System.out.printf("Error processing file %finished_gt_seeds with message %finished_gt_seeds.\n", in_file, e.getMessage());
         }
     }
 

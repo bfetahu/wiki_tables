@@ -313,7 +313,7 @@ public class WikiAnchorGraph {
             System.out.println("Processing " + data[0] + "\t" + data[1]);
             gatherAllRelevantPairs(pairs_map, article_a, article_b, trace, atm);
 
-            System.out.printf("Finished retrieving pairs for %s\t%s, with a total of %d pairs.\n", data[0], data[1], atm.get());
+            System.out.printf("Finished retrieving pairs for %finished_gt_seeds\t%finished_gt_seeds, with a total of %d pairs.\n", data[0], data[1], atm.get());
             trace.clear();
         }
     }

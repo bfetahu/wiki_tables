@@ -43,10 +43,13 @@ public class ArticleCandidates {
     public static Map<String, TDoubleArrayList> word2vec;
 
     //load the wikipedia tables
-    public static Map<String, Map<String, List<WikiTable>>> tables;
+    public Map<String, Map<String, List<WikiTable>>> tables;
 
     //keep the set of entity pairs that are not computed.
-    public static Map<String, Set<String>> missing_gt_pairs = new HashMap<>();
+    public static Set<String> finished_gt_seeds = new HashSet<>();
+
+    //keep the entity abstracts
+    public static Map<String, String> entity_abstracts = new HashMap<>();
 
     public ArticleCandidates(CategoryRepresentation root_category) {
         cat_to_map = new HashMap<>();
@@ -55,6 +58,9 @@ public class ArticleCandidates {
 
         Map<String, Double> attribute_max_level_category = DataUtils.computeMaxLevelAttributeCategory(cat_to_map);
         cat_weights = DataUtils.computeCategoryAttributeWeights(attribute_max_level_category, cat_to_map);
+    }
+
+    public ArticleCandidates() {
     }
 
 
@@ -80,19 +86,21 @@ public class ArticleCandidates {
                 word2vec = DataUtils.loadWord2Vec(args[++i]);
             } else if (args[i].equals("-graph_emb")) {
                 ceg.loadEmbedding(args[++i]);
-            } else if (args[i].equals("-missing_gt_pairs")) {
-                missing_gt_pairs = FileUtils.readMapSet(args[++i], "\t");
+            } else if (args[i].equals("-finished_gt_seeds")) {
+                finished_gt_seeds = FileUtils.readIntoSet(args[++i], "\n", false);
+            } else if (args[i].equals("-abstracts")) {
+                entity_abstracts = DataUtils.loadEntityAbstracts(args[++i]);
             }
         }
         ceg_graph = ceg.constructUndirectedGraph();
         sp = new DijkstraShortestPath<>(ceg_graph);
         System.out.println("Finished constructing the undirected graph.");
-        tables = DataUtils.loadTables(table_data, filter_entities, false);
-        System.out.printf("Finished loading the data tables for %d entities.\n", tables.size());
 
         CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep_path);
-
         ArticleCandidates ac = new ArticleCandidates(cat);
+
+        ac.tables = DataUtils.loadTables(table_data, filter_entities, false);
+        System.out.printf("Finished loading the data tables for %d entities.\n", ac.tables.size());
 
         System.out.println("Loaded the article candidate object.");
 
@@ -111,58 +119,54 @@ public class ArticleCandidates {
         header.append("entity_a\tentity_b\tmin_cat_rep_sim\tmax_cat_rep_sim\tmean_cat_rep_sim\t");
         header.append("cat_level_diff_lca\tmin_shortest_path_lca\tmax_shortest_path_lca\tmean_shortest_path_lca\t");
         header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\tmean_distance_col\tmin_col_w2v_sim\tmax_col_w2v_sim\tmean_col_w2v_sim\t");
-        header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\tlabel\n");
+        header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\tabs_sim\tlabel\n");
         FileUtils.saveText(header.toString(), out_dir + "/candidate_features.tsv");
 
         StringBuffer sb = new StringBuffer();
         for (String entity : seed_entities) {
-            if (!tables.containsKey(entity)) {
+            if (!tables.containsKey(entity) || finished_gt_seeds.contains(entity)) {
                 continue;
             }
+            TDoubleArrayList entity_abs_w2v_avg = DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec);
             Set<String> entity_cats_a = entity_cats.get(entity);
             for (String entity_candidate : filter_entities) {
                 if (!tables.containsKey(entity_candidate)) {
                     continue;
                 }
+                TDoubleArrayList entity_candidate_abs_w2v_avg = DataUtils.computeAverageWordVector(entity_abstracts.get(entity_candidate), word2vec);
+                Set<String> entity_cats_candidate = entity_cats.get(entity);
 
-                if (!(missing_gt_pairs.containsKey(entity) && missing_gt_pairs.get(entity).contains(entity_candidate))) {
-                    continue;
-                }
-                try {
-                    Set<String> entity_cats_candidate = entity_cats.get(entity);
+                //create for each of these pairs the features
+                boolean label = gt_entities.containsKey(entity) && gt_entities.get(entity).contains(entity_candidate);
 
-                    //create for each of these pairs the features
-                    boolean label = gt_entities.containsKey(entity) && gt_entities.get(entity).contains(entity_candidate);
+                //add all the category representation similarities
+                double[] cat_rep_sim = computeCategorySim(entity_cats_a, entity_cats_candidate);
 
-                    //add all the category representation similarities
-                    double[] cat_rep_sim = computeCategorySim(entity_cats_a, entity_cats_candidate);
+                //check the category taxonomy, LCA, distance between categories, depth level
+                Set<String> lca_cats = DataUtils.findLCACategories(entity_cats_a, entity_cats_candidate, cat_to_map);
+                double[] lca_features = computeCategoryTaxonomyFeatures(lca_cats, entity_cats_a, entity_cats_candidate);
 
-                    //check the category taxonomy, LCA, distance between categories, depth level
-                    Set<String> lca_cats = DataUtils.findLCACategories(entity_cats_a, entity_cats_candidate, cat_to_map);
-                    double[] lca_features = computeCategoryTaxonomyFeatures(lca_cats, entity_cats_a, entity_cats_candidate);
+                //add all the table column similarities
+                double[] tbl_sim = computeTableFeatures(entity, entity_candidate);
 
-                    //add all the table column similarities
-                    double[] tbl_sim = computeTableFeatures(entity, entity_candidate);
+                //add all the node2vec similarities for the instances in the table
+                double[] cat_emb_sim = computeCategoryEmbeddSim(entity_cats_a, entity_cats_candidate);
 
-                    //add all the node2vec similarities for the instances in the table
-                    double[] cat_emb_sim = computeCategoryEmbeddSim(entity_cats_a, entity_cats_candidate);
+                sb.append(entity).append("\t").append(entity_candidate).append("\t");
 
-                    sb.append(entity).append("\t").append(entity_candidate).append("\t");
+                IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
+                IntStream.range(0, lca_features.length).forEach(i -> sb.append(lca_features[i]).append("\t"));
+                IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
+                IntStream.range(0, cat_emb_sim.length).forEach(i -> sb.append(cat_emb_sim[i]).append("\t"));
 
-                    IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
-                    IntStream.range(0, lca_features.length).forEach(i -> sb.append(lca_features[i]).append("\t"));
-                    IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
-                    IntStream.range(0, cat_emb_sim.length).forEach(i -> sb.append(cat_emb_sim[i]).append("\t"));
 
-                    sb.append(label).append("\n");
+                //compute the w2v sim between the entity abstracts
+                double abs_sim = DataUtils.computeCosineSim(entity_abs_w2v_avg, entity_candidate_abs_w2v_avg);
+                sb.append(abs_sim).append("\t").append(label).append("\n");
 
-                    if (sb.length() > 10000) {
-                        FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
-                        sb.delete(0, sb.length());
-                    }
-                } catch (Exception e) {
-                    System.out.printf("Error processing the pair %s\t%s with error message %s.\n", entity, entity_candidate, e.getMessage());
-                    e.printStackTrace();
+                if (sb.length() > 10000) {
+                    FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
+                    sb.delete(0, sb.length());
                 }
             }
             System.out.printf("Finished processing features for entity %s.\n", entity);
@@ -268,7 +272,7 @@ public class ArticleCandidates {
         for (String cat_a : cats_a) {
             for (String cat_b : cats_b) {
                 if (!ceg.node_index.containsKey(cat_a) || !ceg.node_index.containsKey(cat_b)) {
-                    System.out.printf("Categories %s \t %s are missing.\n", cat_a, cat_b);
+                    System.out.printf("Categories %finished_gt_seeds \t %finished_gt_seeds are missing.\n", cat_a, cat_b);
                     continue;
                 }
                 int cat_a_id = ceg.node_index.get(cat_a);
@@ -416,24 +420,11 @@ public class ArticleCandidates {
      * @return
      */
     public double computeWord2VecSim(String str_a, String str_b) {
-        String[] a = str_a.split(" ");
-        String[] b = str_b.split(" ");
-
-        double score = 0;
-        int total = 0;
-        for (String key_a : a) {
-            if (!word2vec.containsKey(key_a)) {
-                continue;
-            }
-            for (String key_b : b) {
-                if (!word2vec.containsKey(key_b)) {
-                    continue;
-                }
-
-                score += DataUtils.computeCosineSim(word2vec.get(key_a), word2vec.get(key_b));
-                total++;
-            }
-        }
-        return score / (total == 0 ? 1 : total);
+        //compute average word vectors
+        TDoubleArrayList avg_a = DataUtils.computeAverageWordVector(str_a, word2vec);
+        TDoubleArrayList avg_b = DataUtils.computeAverageWordVector(str_b, word2vec);
+        return DataUtils.computeCosineSim(avg_a, avg_b);
     }
+
+
 }

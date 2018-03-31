@@ -3,18 +3,12 @@ package test;
 import io.FileUtils;
 import representation.CategoryRepresentation;
 
-import java.io.IOException;
-
 /**
  * Created by besnik on 3/12/18.
  */
 public class Test {
-    public static void main(String[] args) throws IOException {
-        CategoryRepresentation cat = CategoryRepresentation.readCategoryGraph(args[0]);
+    public static void main(String[] args) throws Exception {
 
-        String out_file = args[1];
-        StringBuffer sb = new StringBuffer();
-        printCategories(out_file, sb, cat);
     }
 
 

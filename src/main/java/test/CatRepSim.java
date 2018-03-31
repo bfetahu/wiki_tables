@@ -89,7 +89,7 @@ public class CatRepSim {
         for (String a : keys) {
             for (String b : keys) {
                 double score = DataUtils.computeEuclideanDistance(weights.get(a), weights.get(b));
-                System.out.printf("%s\t%s\t%.2f\n", a, b, score);
+                System.out.printf("%finished_gt_seeds\t%finished_gt_seeds\t%.2f\n", a, b, score);
             }
         }
     }
@@ -122,7 +122,7 @@ public class CatRepSim {
     public static void computeCategorySimilarity(CategoryRepresentation cat, Map<String, TIntDoubleHashMap> cat_weights, String outfile) {
         TIntDoubleHashMap cat_weight = cat_weights.get(cat.label);
         if (!cat.children.isEmpty()) {
-            System.out.printf("Computing the category representation similarity for %s\n", cat.label);
+            System.out.printf("Computing the category representation similarity for %finished_gt_seeds\n", cat.label);
 
             int i = 0;
             for (String child_label : cat.children.keySet()) {

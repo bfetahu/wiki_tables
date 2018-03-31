@@ -169,7 +169,7 @@ public class GTPairs {
         for (String article_a : candidate_pairs.keySet()) {
             StringBuffer sb = new StringBuffer();
             if (!seed_table_json.containsKey(article_a)) {
-                System.out.printf("Tables for article %s are missing.\n", article_a);
+                System.out.printf("Tables for article %finished_gt_seeds are missing.\n", article_a);
                 continue;
             }
             JSONObject article_a_json = seed_table_json.get(article_a);
@@ -182,7 +182,7 @@ public class GTPairs {
                     JSONObject table_a = tables_a.getJSONObject(j);
                     for (String article_b : candidate_pairs.get(article_a)) {
                         if (!seed_table_json.containsKey(article_b)) {
-                            System.out.printf("Tables for article %s are missing.\n", article_b);
+                            System.out.printf("Tables for article %finished_gt_seeds are missing.\n", article_b);
                             continue;
                         }
                         JSONObject article_b_json = seed_table_json.get(article_b);
@@ -236,7 +236,7 @@ public class GTPairs {
                 }
                 seed_table_json.put(entity, json);
             } catch (Exception e) {
-                System.out.printf("Error processing table data for line \t\t%s.\n", line);
+                System.out.printf("Error processing table data for line \t\t%finished_gt_seeds.\n", line);
             }
         }
         return seed_table_json;
@@ -283,7 +283,7 @@ public class GTPairs {
                     total++;
                 }
             }
-            System.out.printf("Finished processing entity %s with %d candidates.\n", sample_entity, total);
+            System.out.printf("Finished processing entity %finished_gt_seeds with %d candidates.\n", sample_entity, total);
         }
     }
 }
