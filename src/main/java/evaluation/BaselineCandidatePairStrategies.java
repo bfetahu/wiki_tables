@@ -2,6 +2,7 @@ package evaluation;
 
 import datastruct.TableCandidateFeatures;
 import gnu.trove.list.array.TDoubleArrayList;
+import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import representation.CategoryRepresentation;
@@ -36,8 +37,7 @@ public class BaselineCandidatePairStrategies {
 
     public static void main(String[] args) throws IOException {
         String all_pairs = "", out_dir = "", option = "", article_categories = "",
-                category_path = "", anchor_data = "", wiki_articles = "",
-                cat_type = "";
+                category_path = "", anchor_data = "", wiki_articles = "", cat_type = "";
         double damping_factor = 0.6;
         int iterations = 5;
 
@@ -106,19 +106,38 @@ public class BaselineCandidatePairStrategies {
      * @param category_path
      */
     public static void computeNode2VecCoverage(String article_categories, String category_path, String out_dir, boolean isEntity) throws IOException {
+        Map<String, Double> cat_sums = new HashMap<>();
         if (!isEntity) {
             loadEntityCategoryDataStructures(article_categories, category_path);
+
+            //compute the sums
+            double epsilon = 1e-3;
+            for (String cat : cat_to_map.keySet()) {
+                TDoubleArrayList emb = node2vec.get(cat.replaceAll(" ", "_"));
+                if (emb == null) {
+                    cat_sums.put(cat, epsilon);
+                } else {
+                    double sum = Arrays.stream(emb.toArray()).map(x -> Math.pow(x, 2)).sum();
+                    cat_sums.put(cat, sum);
+                }
+            }
         }
+
+        Map<String, Integer> entity_idx = new HashMap<>();
+        filter_entities.forEach(entity -> entity_idx.put(entity, entity.hashCode()));
+
+        String out_file = isEntity ? out_dir + "/entity_embedding_coverage.tsv" : out_dir + "/category_embedding_coverage.tsv";
+        FileUtils.saveText("entity\tgt_total\tsim\tall_candidates\toverlap\tunaligned_entities\taligned_ratio\tunaligned_ratio\n", out_dir);
 
         //check for each entity the coverage similarity.
         for (String entity : seed_entities) {
+            System.out.println("Processing seed entity " + entity);
             TDoubleArrayList entity_emb = node2vec.get(entity.replaceAll(" ", "_"));
             Set<String> gt_entities = gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>();
             int gt_total = gt_entities.size();
 
-            DecimalFormat df = new DecimalFormat("#.00");
+            DecimalFormat df = new DecimalFormat("#.0");
             Map<Double, Set<String>> candidates = new TreeMap<>();
-
             if (isEntity) {
                 for (String candidate_entity : filter_entities) {
                     TDoubleArrayList candidate_entity_emb = node2vec.get(candidate_entity.replaceAll(" ", "_"));
@@ -132,43 +151,69 @@ public class BaselineCandidatePairStrategies {
                 List<CategoryRepresentation> categories = entity_cats.get(entity).stream().filter(cat -> cat_to_map.containsKey(cat)).map(cat -> cat_to_map.get(cat)).collect(Collectors.toList());
                 for (CategoryRepresentation cat : categories) {
                     TDoubleArrayList cat_emb = node2vec.get(cat.label.replaceAll(" ", "_"));
-                    for (String candidate_category : cat_to_map.keySet()) {
+                    double sum_a = cat_sums.get(cat.label);
+                    System.out.println("Computing the category similarity for entity " + entity + " and category " + cat.label + " with " + cat.entities.size());
+                    cat_to_map.values().forEach(candidate_category -> {
+                        double sum_b = cat_sums.get(candidate_category.label);
                         double score = 0.0;
-                        if (cat.label.equals(candidate_category)) {
+                        if (cat.label.equals(candidate_category.label)) {
                             score = 1.0;
                         } else {
-                            TDoubleArrayList candidate_cat_emb = node2vec.get(candidate_category.replaceAll(" ", "_"));
-                            score = Double.parseDouble(df.format(DataUtils.computeCosineSim(cat_emb, candidate_cat_emb)));
+                            TDoubleArrayList candidate_cat_emb = node2vec.get(candidate_category.label.replaceAll(" ", "_"));
+                            score = Double.parseDouble(df.format(DataUtils.computeCosineSim(cat_emb, candidate_cat_emb, sum_a, sum_b)));
                         }
 
                         if (!candidates.containsKey(score)) {
                             candidates.put(score, new HashSet<>());
                         }
-                        candidates.get(score).addAll(cat_to_map.get(candidate_category).entities);
-                    }
+                        candidates.get(score).add(candidate_category.label);
+                    });
                 }
+                System.out.println("Finished computing category similarity for entity " + entity);
+            }
+
+            //group the entities based on the existing thresholds.
+            Map<Double, TIntHashSet> entities = new TreeMap<>();
+            TIntHashSet gt_idx = new TIntHashSet();
+            gt_entities.forEach(e -> gt_idx.add(entity_idx.get(e)));
+
+            for (double score : candidates.keySet()) {
+                if (!isEntity) {
+                    Set<String> sub_entities = new HashSet<>();
+                    candidates.get(score).forEach(cat -> sub_entities.addAll(cat_to_map.get(cat).entities));
+                    sub_entities.retainAll(filter_entities);
+
+                    TIntHashSet sub_set = new TIntHashSet();
+                    sub_entities.forEach(e -> sub_set.add(entity_idx.get(e)));
+                    entities.put(score, sub_set);
+                } else {
+                    Set<String> sub_entities = candidates.get(score);
+                    TIntHashSet sub_set = new TIntHashSet();
+                    sub_entities.forEach(e -> sub_set.add(entity_idx.get(e)));
+                    entities.put(score, sub_set);
+                }
+            }
+
+            Map<Double, Map.Entry<Integer, Integer>> cumm_entities = new HashMap<>();
+            for (double score : candidates.keySet()) {
+                TIntHashSet cumm = new TIntHashSet(entities.get(score));
+                candidates.keySet().stream().filter(score_cmp -> score_cmp >= score).forEach(score_cmp -> cumm.addAll(entities.get(score_cmp)));
+                gt_idx.retainAll(cumm);
+                cumm_entities.put(score, new AbstractMap.SimpleEntry<>(cumm.size(), gt_idx.size()));
             }
 
             //output the data
             StringBuffer sb = new StringBuffer();
-            Double[] scores = new Double[candidates.size()];
-            candidates.keySet().toArray(scores);
-            for (int i = 0; i < scores.length; i++) {
-                double score = scores[i];
-                Set<String> sub_entities = new HashSet<>();
-                candidates.keySet().stream().filter(s -> s >= score).forEach(s -> sub_entities.addAll(candidates.get(s)));
-                sub_entities.retainAll(filter_entities);
-
-                int candidate_total = sub_entities.size();
-                sub_entities.retainAll(gt_entities);
-
-                int overlapping = sub_entities.size();
+            for (double score : cumm_entities.keySet()) {
+                int candidate_total = cumm_entities.get(score).getKey();
+                int overlapping = cumm_entities.get(score).getValue();
                 int additional = candidate_total - overlapping;
                 double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
                 double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
-                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).append("\t").append(unaligned_ratio).append("\n");
+                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).
+                        append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
+                        append("\t").append(unaligned_ratio).append("\n");
             }
-            String out_file = isEntity ? out_dir + "/entity_embedding_coverage.tsv" : out_dir + "/category_embedding_coverage.tsv";
             FileUtils.saveText(sb.toString(), out_file, true);
         }
     }
@@ -312,7 +357,7 @@ public class BaselineCandidatePairStrategies {
     public static void computeGreedyCoverage(String out_dir) throws IOException {
         StringBuffer sb = new StringBuffer();
         String out_file = out_dir + "/greedy_entity_pair_coverage.tsv";
-        sb.append("entity\tlevel\tall_candidates\tgt_total\toverlap\tunaligned_entities\taligned_ratio\tunaligned_ratio\n");
+        sb.append("entity\tlevel\tgt_total\tall_candidates\toverlap\tunaligned_entities\taligned_ratio\tunaligned_ratio\n");
 
         for (String entity : seed_entities) {
             Set<String> sub_gt_entities = gt_pairs.containsKey(entity) ? gt_pairs.get(entity) : new HashSet<>();
@@ -325,7 +370,7 @@ public class BaselineCandidatePairStrategies {
             sub_greedy_entities.retainAll(sub_gt_entities);
             int overlapping = sub_greedy_entities.size();
             int additional = candidate_total - overlapping;
-            double aligned_ratio = (double) overlapping / gt_total;
+            double aligned_ratio = gt_total == 0 ? 0 : (double) overlapping / gt_total;
             double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
             sb.append(entity).append("\t").append(0).append("\t").append(gt_total).append("\t").append(candidate_total).
                     append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
@@ -578,6 +623,9 @@ public class BaselineCandidatePairStrategies {
     public static Map<String, Map.Entry<Integer, Set<String>>> loadEntitiesByCategory(String article_categories, String category_path, String cat_type) throws IOException {
         loadEntityCategoryDataStructures(article_categories, category_path);
         Map<String, Map.Entry<Integer, Set<String>>> max_level_entities = new HashMap<>();
+
+        System.out.println("There are " + filter_entities.size() + " filter entities.");
+
         for (String entity : seed_entities) {
             //an entity is directly associated to multiple categories.
             Set<String> entity_pairs = new HashSet<>();
@@ -592,8 +640,9 @@ public class BaselineCandidatePairStrategies {
             }
             //retrieve the categories that belong at the same depth in the category taxonomy.
             int max_level = categories.stream().mapToInt(cat -> cat.level).max().getAsInt();
+            int max_sum = categories.stream().filter(cat -> cat.level == max_level).mapToInt(cat -> cat.entities.size()).sum();
 
-            System.out.printf("Entity %s has the maximal level %d and has %d categories.\n", entity, max_level, categories.size());
+            System.out.printf("Entity %s has the maximal level %d and has %d categories with %d entities from the deepest categories.\n", entity, max_level, categories.size(), max_sum);
 
             if (cat_type == "deepest") {
                 //add all the entities that belong to the deepest category directly associated with our seed entity
@@ -609,7 +658,6 @@ public class BaselineCandidatePairStrategies {
                 categories.stream().filter(cat -> cat.level == max_level).forEach(cat -> entity_pairs.addAll(cat.entities));
                 categories.stream().filter(cat -> cat.level == max_level).forEach(cat -> cat.parents.values().forEach(parent -> entity_pairs.addAll(parent.entities)));
             }
-
             entity_pairs.retainAll(filter_entities);
             max_level_entities.put(entity, new AbstractMap.SimpleEntry<>(max_level, entity_pairs));
         }

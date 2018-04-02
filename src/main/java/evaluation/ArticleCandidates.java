@@ -133,7 +133,7 @@ public class ArticleCandidates {
             List<String> feature_lines = new ArrayList<>();
             List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
 
-            filter_entities.parallelStream().forEach(entity_candidate -> {
+            filter_entities.forEach(entity_candidate -> {
                 if (!tables.containsKey(entity_candidate)) {
                     return;
                 }
@@ -173,6 +173,7 @@ public class ArticleCandidates {
                 double abs_sim = DataUtils.computeCosineSim(entity_abs_w2v_avg, entity_candidate_abs_w2v_avg);
                 sb.append(abs_sim).append("\t").append(label).append("\n");
                 concurrent_fl.add(sb.toString());
+
             });
 
             StringBuffer sb = new StringBuffer();

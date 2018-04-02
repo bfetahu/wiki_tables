@@ -559,6 +559,28 @@ public class DataUtils {
 
 
     /**
+     * Compute the cosine similarity between two vectors.
+     *
+     * @param a
+     * @param b
+     * @return
+     */
+    public static double computeCosineSim(TDoubleArrayList a, TDoubleArrayList b, double sum_a, double sum_b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+            return 0.0;
+        }
+        double score = 0.0;
+
+        for (int i = 0; i < a.size(); i++) {
+            score += a.get(i) * b.get(i);
+        }
+
+        score /= Math.sqrt(sum_a) * Math.sqrt(sum_b);
+        return score;
+    }
+
+
+    /**
      * Generate an average word vector for a given text.
      *
      * @param text
