@@ -15,6 +15,7 @@ import representation.CategoryRepresentation;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -23,6 +24,10 @@ import java.util.stream.Collectors;
  * Created by besnik on 12/8/17.
  */
 public class DataUtils {
+    //keep the precomputed LCA categories so that the process is faster.
+    public static Map<String, Map<String, Set<String>>> lca_cats = new ConcurrentHashMap<>();
+    public static boolean log_lca_cats = false;
+
     public static Pattern pdates[] = {
             Pattern.compile("[0-9]{3,}–[0-9]{2,}"), Pattern.compile("[0-9]{3,}-[0-9]{2,}"),
             Pattern.compile("\\b[0-9]{3,}\\b"), Pattern.compile("[0-9]+[a-z]+\\s+"),
@@ -300,6 +305,38 @@ public class DataUtils {
     }
 
     /**
+     * Compute the Euclidean distance for any two sets of weights for a given property, weight set.
+     *
+     * @param weights_a
+     * @param weights_b
+     * @return
+     */
+    public static double computeCosine(TIntDoubleHashMap weights_a, TIntDoubleHashMap weights_b) {
+        if (weights_a.isEmpty() || weights_b.isEmpty()) {
+            return 0.0;
+        }
+
+        TIntHashSet all_keys = new TIntHashSet(weights_a.keySet());
+        all_keys.addAll(weights_b.keySet());
+
+        double[] a = new double[all_keys.size()];
+        double[] b = new double[all_keys.size()];
+
+        int[] keys = all_keys.toArray();
+
+        for (int i = 0; i < keys.length; i++) {
+            a[i] = weights_a.containsKey(keys[i]) ? weights_a.get(keys[i]) : 0;
+            b[i] = weights_b.containsKey(keys[i]) ? weights_b.get(keys[i]) : 0;
+        }
+
+        double score = Arrays.stream(keys).mapToDouble(key -> a[key] * b[key]).sum();
+        double sum_a = Arrays.stream(a).map(x -> Math.pow(x, 2)).sum();
+        double sum_b = Arrays.stream(b).map(x -> Math.pow(x, 2)).sum();
+
+        return score / (Math.sqrt(sum_a) * Math.sqrt(sum_b));
+    }
+
+    /**
      * Compute the deepest level with which an attribute is associated to a category.
      *
      * @param cats
@@ -400,7 +437,7 @@ public class DataUtils {
             int cat_a = data[0].hashCode();
             int cat_b = data[1].hashCode();
 
-            double score = Double.parseDouble(data[5]);
+            double score = Double.parseDouble(data[2]);
 
             if (!sim.containsKey(cat_a)) {
                 sim.put(cat_a, new TIntDoubleHashMap());
@@ -419,16 +456,82 @@ public class DataUtils {
      * @param cat_to_map
      * @return
      */
-    public static Set<String> findLCACategories(Set<String> article_a_cats, Set<String> article_b_cats, Map<String, CategoryRepresentation> cat_to_map) {
+    public static Set<String> findLCACategories(Set<String> article_a_cats, Set<String> article_b_cats, Map<String, CategoryRepresentation> cat_to_map, int max_level_a, int max_level_b) {
         //check first if they come from the same categories.
-        if (article_a_cats == null || article_b_cats == null) {
+        if (article_a_cats == null || article_b_cats == null || article_b_cats.isEmpty() || article_a_cats.isEmpty()) {
             //return null in this case, indicating that the articles belong to exactly the same categories
             return null;
         }
         boolean same_cats = article_a_cats.equals(article_b_cats);
+
+        /*
+             Else, we first find the lowest common ancestor between the categories of the two articles.
+             Additionally, we will do this only for the categories being in the deepest category hierarchy graph,
+             this allows us to avoid the match between very broad categories, and thus, we generate more
+             meaningful similarity matches.
+         */
+        if (same_cats) {
+            return article_a_cats;
+        }
+
+        for (String cat_a_label : article_a_cats) {
+            CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);
+            if (cat_a == null || cat_a.level < max_level_a) {
+                continue;
+            }
+
+            if (log_lca_cats && !lca_cats.containsKey(cat_a_label)) {
+                lca_cats.put(cat_a_label, new ConcurrentHashMap<>());
+            }
+
+            for (String cat_b_label : article_b_cats) {
+                CategoryRepresentation cat_b = cat_to_map.get(cat_b_label);
+                if (cat_b == null || cat_b.level < max_level_b) {
+                    continue;
+                }
+
+                if (log_lca_cats && lca_cats.get(cat_a_label).containsKey(cat_b_label)) {
+                    return lca_cats.get(cat_a_label).get(cat_b_label);
+                }
+
+                //get the lowest common ancestors between the two categories
+                Set<CategoryRepresentation> common_ancestors = DataUtils.findCommonAncestor(cat_a, cat_b, cat_to_map);
+                if (common_ancestors == null || common_ancestors.isEmpty()) {
+                    continue;
+                }
+                Set<String> lca = common_ancestors.stream().map(x -> x.label).collect(Collectors.toSet());
+
+                if (log_lca_cats) {
+                    lca_cats.get(cat_a_label).put(cat_b_label, lca);
+                }
+                return lca;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Find the lowest common ancestors between two category sets which we have extracted from an entity.
+     *
+     * @param article_a_cats
+     * @param article_b_cats
+     * @param cat_to_map
+     * @return
+     */
+    public static Set<String> findLCACategories(Set<String> article_a_cats, Set<String> article_b_cats, Map<String, CategoryRepresentation> cat_to_map) {
+        //check first if they come from the same categories.
+        if (article_a_cats == null || article_b_cats == null || article_b_cats.isEmpty() || article_a_cats.isEmpty()) {
+            //return null in this case, indicating that the articles belong to exactly the same categories
+            return null;
+        }
+        if (article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).count() == 0 || article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).count() == 0) {
+            return null;
+        }
+        boolean same_cats = article_a_cats.equals(article_b_cats);
+
         int max_level_a = article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
         int max_level_b = article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
-
 
         /*
              Else, we first find the lowest common ancestor between the categories of the two articles.
@@ -622,23 +725,18 @@ public class DataUtils {
      * Generate an average word vector for a given text.
      *
      * @param cats
-     * @param ceg
+     * @param node2vec
      * @return
      */
-    public static TDoubleArrayList computeAverageWordVector(Set<String> cats, CategoryEntityGraph ceg) {
-        if (cats == null || cats.isEmpty() || ceg.graph_embedding == null) {
+    public static TDoubleArrayList computeGraphAverageEmbedding(Set<String> cats, Map<String, TDoubleArrayList> node2vec) {
+        if (cats == null || cats.isEmpty()) {
             return null;
         }
-
 
         //compute average word vectors
         TDoubleArrayList avg_a = new TDoubleArrayList();
         for (String cat : cats) {
-            int cat_a_id = ceg.node_index.get(cat);
-            if (!ceg.graph_embedding.containsKey(cat_a_id)) {
-                continue;
-            }
-            TDoubleArrayList emb = ceg.graph_embedding.get(cat_a_id);
+            TDoubleArrayList emb = node2vec.get(cat.replaceAll(" ", "_"));
 
             if (avg_a.isEmpty()) {
                 avg_a.addAll(emb);

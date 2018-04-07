@@ -144,6 +144,10 @@ public class CategoryRepresentation implements Serializable {
                 continue;
             }
 
+            if(line.contains("1903 musicals")){
+                System.out.println(line);
+            }
+
             String parent_label = data[0].trim();
             String child_label = data[1].trim();
 
@@ -182,64 +186,9 @@ public class CategoryRepresentation implements Serializable {
         removeCyclesDFS(root);
         root.setLevels(0);
         root.ensureHierarchy();
-        root.pruneCategoriesByDate(next_node_id);
-        root.ensureHierarchy();
-        root.setLevels(0);
 
         return root;
     }
-
-    /**
-     * Prunes the categories based on Dates, such that similar categories which differ only on the date are collapsed
-     * into a parent category by removing the date information.
-     *
-     * @param next_node_id the current maximum node ID which we will use to assign to the aggregate nodes.
-     */
-    public void pruneCategoriesByDate(int next_node_id) {
-        if (!children.isEmpty() && !is_aggregate) {
-            //the pruning of categories is done at each level of the category hierarchy.
-            Map<String, Set<String>> children_prunning = new HashMap<>();
-            for (String child_label : children.keySet()) {
-                String new_label = DataUtils.removeDateFromCategory(child_label);
-                new_label = new_label.equals("") ? child_label : new_label;
-
-                if (!children_prunning.containsKey(new_label)) {
-                    children_prunning.put(new_label, new HashSet<>());
-                }
-                children_prunning.get(new_label).add(child_label);
-            }
-
-            //collapse categories.
-            for (String child_group : children_prunning.keySet()) {
-                Set<String> child_grouped_keys = children_prunning.get(child_group);
-                if (child_grouped_keys.size() != 1) {
-                    CategoryRepresentation cat_new = new CategoryRepresentation(child_group, level + 2);
-                    cat_new.is_aggregate = true;
-                    cat_new.node_id = next_node_id + 1;
-
-                    //add the parent-child relations
-                    children.put(cat_new.label, cat_new);
-
-                    for (String child_label : child_grouped_keys) {
-                        CategoryRepresentation child = children.get(child_label);
-
-                        children.remove(child_label);
-
-                        cat_new.parents.putAll(child.parents);
-                        cat_new.children.put(child.label, child);
-
-                        child.parents.remove(label);
-                        child.parents.put(cat_new.label, cat_new);
-                    }
-                }
-            }
-            for (String child_label : children.keySet()) {
-                CategoryRepresentation child = children.get(child_label);
-                child.pruneCategoriesByDate(++next_node_id);
-            }
-        }
-    }
-
 
     /**
      * Load the categories into a map data structure.
@@ -260,7 +209,6 @@ public class CategoryRepresentation implements Serializable {
             if (line.isEmpty() || data.length != 2) {
                 continue;
             }
-
             String parent_label = data[0].trim().intern();
             String child_label = data[1].trim().intern();
 

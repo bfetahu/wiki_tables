@@ -2,17 +2,16 @@ package evaluation;
 
 import datastruct.wikitable.WikiColumnHeader;
 import datastruct.wikitable.WikiTable;
-import edu.uci.ics.jung.algorithms.shortestpath.DijkstraShortestPath;
-import edu.uci.ics.jung.graph.Graph;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.map.hash.TIntDoubleHashMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
 import io.FileUtils;
-import representation.CategoryEntityGraph;
-import representation.CategoryRepresentation;
 import utils.DataUtils;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -21,10 +20,6 @@ import java.util.stream.IntStream;
  * Created by besnik on 12/6/17.
  */
 public class ArticleCandidates {
-    private CategoryRepresentation root_category;
-    private Map<String, CategoryRepresentation> cat_to_map;
-    private Map<String, TIntDoubleHashMap> cat_weights;
-
     //the entity dictionaries which include the entities for which we have the ground-truth (seed_entities, gt_entities),
     // and the entities which contain a table (filter_entities)
     public static Set<String> seed_entities = new HashSet<>();
@@ -34,13 +29,9 @@ public class ArticleCandidates {
     //the entity categories
     public static Map<String, Set<String>> entity_cats = new HashMap<>();
 
-    //load the category-entity graph and the corresponding graph embedding.
-    public static CategoryEntityGraph ceg = new CategoryEntityGraph();
-    public static Graph<Integer, Integer> ceg_graph;
-    public static DijkstraShortestPath<Integer, Integer> sp;
-
-    //load the word embeddings.
+    //load the word  and graph embeddings.
     public static Map<String, TDoubleArrayList> word2vec;
+    public static Map<String, TDoubleArrayList> node2vec;
 
     //load the wikipedia tables
     public Map<String, Map<String, List<WikiTable>>> tables;
@@ -51,21 +42,14 @@ public class ArticleCandidates {
     //keep the entity abstracts
     public static Map<String, String> entity_abstracts = new HashMap<>();
 
-    public ArticleCandidates(CategoryRepresentation root_category) {
-        cat_to_map = new HashMap<>();
-        this.root_category = root_category;
-        this.root_category.loadIntoMapChildCats(cat_to_map);
-
-        Map<String, Double> attribute_max_level_category = DataUtils.computeMaxLevelAttributeCategory(cat_to_map);
-        cat_weights = DataUtils.computeCategoryAttributeWeights(attribute_max_level_category, cat_to_map);
-    }
+    //keep the cat similarities
+    public static TIntObjectHashMap<TIntDoubleHashMap> cat_sim;
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        String cat_rep_path = "", out_dir = "", table_data = "";
+        String out_dir = "", table_data = "", option = "", feature_file = "";
+        double sim_threshold = 0.0;
         for (int i = 0; i < args.length; i++) {
-            if (args[i].equals("-cat_rep")) {
-                cat_rep_path = args[++i];
-            } else if (args[i].equals("-out_dir")) {
+            if (args[i].equals("-out_dir")) {
                 out_dir = args[++i];
             } else if (args[i].equals("-article_categories")) {
                 entity_cats = DataUtils.readEntityCategoryMappingsWiki(args[++i], null);
@@ -80,27 +64,70 @@ public class ArticleCandidates {
             } else if (args[i].equals("-word2vec")) {
                 word2vec = DataUtils.loadWord2Vec(args[++i]);
             } else if (args[i].equals("-graph_emb")) {
-                ceg.loadEmbedding(args[++i]);
+                node2vec = DataUtils.loadWord2Vec(args[++i]);
             } else if (args[i].equals("-finished_gt_seeds")) {
                 finished_gt_seeds = FileUtils.readIntoSet(args[++i], "\n", false);
+                System.out.println("Finished so far: " + finished_gt_seeds.toString());
             } else if (args[i].equals("-abstracts")) {
                 entity_abstracts = DataUtils.loadEntityAbstracts(args[++i]);
+            } else if (args[i].equals("-cat_sim")) {
+                cat_sim = DataUtils.loadCategoryRepSim(args[++i]);
+            } else if (args[i].equals("-option")) {
+                option = args[++i];
+            } else if (args[i].equals("-sim_threshold")) {
+                sim_threshold = Double.parseDouble(args[++i]);
+            } else if (args[i].equals("-features")) {
+                feature_file = args[++i];
             }
         }
-        ceg_graph = ceg.constructUndirectedGraph();
-        sp = new DijkstraShortestPath<>(ceg_graph);
-        System.out.println("Finished constructing the undirected graph.");
+        ArticleCandidates ac = new ArticleCandidates();
 
-        CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(cat_rep_path);
-        ArticleCandidates ac = new ArticleCandidates(cat);
+        if (option.equals("extract_features")) {
+            ac.tables = DataUtils.loadTables(table_data, filter_entities, false);
+            System.out.printf("Finished loading the data tables for %d entities.\n", ac.tables.size());
+            //compute the features.
+            ac.scoreTableCandidatesApproach(out_dir);
+        } else if (option.equals("filter_features")) {
+            ac.filterFeaturesByEntityEmb(feature_file, sim_threshold, out_dir);
+        }
+    }
 
-        ac.tables = DataUtils.loadTables(table_data, filter_entities, false);
-        System.out.printf("Finished loading the data tables for %d entities.\n", ac.tables.size());
+    /**
+     * Filter the feature file which contains all possible entity pairs. Here we filter the entity pairs correspondingly
+     * the feature file based on the entity similarity based on their embeddings.
+     *
+     * @param feature_file
+     */
+    public void filterFeaturesByEntityEmb(String feature_file, double sim_threshold, String out_dir) throws IOException {
+        BufferedReader reader = FileUtils.getFileReader(feature_file);
+        String line;
 
-        System.out.println("Loaded the article candidate object.");
+        StringBuffer sb = new StringBuffer();
+        String out_file = out_dir + "/entity_emb_filtered_features.tsv";
+        int line_counter = 0;
+        while ((line = reader.readLine()) != null) {
+            String[] data = line.split("\t");
 
-        //compute the features.
-        ac.scoreTableCandidatesApproach(out_dir);
+            if (line_counter == 0) {
+                sb.append(line);
+                line_counter++;
+                continue;
+            }
+
+            //we filter by the embedding similarity between the entity pair. the similarity is in the 8th column
+            double sim = Double.parseDouble(data[15]);
+            if (sim >= sim_threshold) {
+                sb.append(line).append("\n");
+            }
+
+            if (sb.length() > 10000) {
+                FileUtils.saveText(sb.toString(), out_file, true);
+                sb.delete(0, sb.length());
+            }
+        }
+
+        FileUtils.saveText(sb.toString(), out_file, true);
+        System.out.printf("Finished filtering the main feature file based on the entity embedding similarity with a threshold of %.2f.\n", sim_threshold);
     }
 
     /**
@@ -112,31 +139,37 @@ public class ArticleCandidates {
     public void scoreTableCandidatesApproach(String out_dir) throws IOException {
         StringBuffer header = new StringBuffer();
         header.append("entity_a\tentity_b\tmin_cat_rep_sim\tmax_cat_rep_sim\tmean_cat_rep_sim\t");
-        header.append("cat_level_diff_lca\tmin_shortest_path_lca\tmax_shortest_path_lca\tmean_shortest_path_lca\t");
-        header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\tmean_distance_col\tmin_col_w2v_sim\tmax_col_w2v_sim\tmean_col_w2v_sim\t");
-        header.append("e_n2v_ec\tavg_n2v_cat_sim\tcat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\tabs_sim\tlabel\n");
+        header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\t");
+        header.append("mean_distance_col\tmin_col_w2v_sim\tmax_col_w2v_sim\tmean_col_w2v_sim\t");
+        header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\te_n2v_ec\tavg_n2v_cat_sim\tabs_sim\tlabel\n");
         FileUtils.saveText(header.toString(), out_dir + "/candidate_features.tsv");
 
         //since we reuse the average word vectors we create them first and then reuse.
         Map<String, TDoubleArrayList> avg_w2v = new HashMap<>();
-        seed_entities.forEach(entity -> avg_w2v.put(entity, DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec)));
+        seed_entities.stream().filter(e -> !finished_gt_seeds.contains(e)).forEach(entity -> avg_w2v.put(entity, DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec)));
         //compute the average vectors of the categories of an entity.
         Map<String, TDoubleArrayList> avg_cat_n2v = new HashMap<>();
-        seed_entities.forEach(entity -> avg_cat_n2v.put(entity, DataUtils.computeAverageWordVector(entity_cats.get(entity), ceg)));
+        seed_entities.stream().filter(e -> !finished_gt_seeds.contains(e)).forEach(entity -> avg_cat_n2v.put(entity, DataUtils.computeGraphAverageEmbedding(entity_cats.get(entity), node2vec)));
 
+        //filter the filter entities to only those that contain tables.
+        filter_entities = filter_entities.stream().filter(e -> tables.containsKey(e)).collect(Collectors.toSet());
         for (String entity : seed_entities) {
-            if (!tables.containsKey(entity) || finished_gt_seeds.contains(entity)) {
+            if (finished_gt_seeds.contains(entity)) {
                 continue;
             }
+            System.out.printf("Processing entity %s\n", entity);
             TDoubleArrayList entity_abs_w2v_avg = avg_w2v.get(entity);
             Set<String> entity_cats_a = entity_cats.get(entity);
             List<String> feature_lines = new ArrayList<>();
             List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
 
-            filter_entities.forEach(entity_candidate -> {
-                if (!tables.containsKey(entity_candidate)) {
-                    return;
-                }
+            TDoubleArrayList entity_emb = node2vec.get(entity.replaceAll(" ", "_"));
+
+            filter_entities.parallelStream().forEach(entity_candidate -> {
+                long time = System.nanoTime();
+                System.out.println("Processing pair " + entity + "\t" + entity_candidate);
+                TDoubleArrayList entity_candidate_emb = node2vec.get(entity_candidate.replaceAll(" ", "_"));
+
                 StringBuffer sb = new StringBuffer();
                 TDoubleArrayList entity_candidate_abs_w2v_avg = avg_w2v.get(entity_candidate);
                 Set<String> entity_cats_candidate = entity_cats.get(entity);
@@ -147,33 +180,29 @@ public class ArticleCandidates {
                 //add all the category representation similarities
                 double[] cat_rep_sim = computeCategorySim(entity_cats_a, entity_cats_candidate);
 
-                //check the category taxonomy, LCA, distance between categories, depth level
-                Set<String> lca_cats = DataUtils.findLCACategories(entity_cats_a, entity_cats_candidate, cat_to_map);
-                double[] lca_features = computeCategoryTaxonomyFeatures(lca_cats, entity_cats_a, entity_cats_candidate);
-
                 //add all the table column similarities
                 double[] tbl_sim = computeTableFeatures(entity, entity_candidate);
 
                 //add all the node2vec similarities for the instances in the table
                 double[] cat_emb_sim = computeCategoryEmbeddSim(entity_cats_a, entity_cats_candidate);
-                double e_n2v_ec = DataUtils.computeCosineSim(ceg.getEmbeddingByKey(entity), ceg.getEmbeddingByKey(entity_candidate));
+                double e_n2v_ec = DataUtils.computeCosineSim(entity_emb, entity_candidate_emb);
                 double avg_cat_n2v_sim = DataUtils.computeCosineSim(avg_cat_n2v.get(entity), avg_cat_n2v.get(entity_candidate));
 
                 //add the features.
                 sb.append(entity).append("\t").append(entity_candidate).append("\t");
 
                 IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
-                IntStream.range(0, lca_features.length).forEach(i -> sb.append(lca_features[i]).append("\t"));
                 IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
                 IntStream.range(0, cat_emb_sim.length).forEach(i -> sb.append(cat_emb_sim[i]).append("\t"));
                 sb.append(e_n2v_ec).append("\t").append(avg_cat_n2v_sim).append("\t");
-
 
                 //compute the w2v sim between the entity abstracts
                 double abs_sim = DataUtils.computeCosineSim(entity_abs_w2v_avg, entity_candidate_abs_w2v_avg);
                 sb.append(abs_sim).append("\t").append(label).append("\n");
                 concurrent_fl.add(sb.toString());
 
+                time = System.nanoTime() - time;
+                System.out.printf("Finished processing entity pair %s and %s\n", entity, entity_candidate);
             });
 
             StringBuffer sb = new StringBuffer();
@@ -186,58 +215,9 @@ public class ArticleCandidates {
             }
             FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
             System.out.printf("Finished processing features for entity %s.\n", entity);
+
+            FileUtils.saveText(entity + "\n", "finished_entities.tsv", true);
         }
-    }
-
-    /**
-     * Computes the min/max/mean distance between the categories of entity A and B against the LCA categories. Next,
-     * compute the shortest path in the category taxonomy between the categories of entities A and B
-     * against the LCA categories.
-     *
-     * @param lca_cats
-     * @param cats_a
-     * @param cats_b
-     * @return
-     */
-    public double[] computeCategoryTaxonomyFeatures(Set<String> lca_cats, Set<String> cats_a, Set<String> cats_b) {
-        if (lca_cats == null || lca_cats.isEmpty() || cats_a.isEmpty() || cats_b.isEmpty()) {
-            return new double[4];
-        }
-        int lca_cat_level = lca_cats.stream().mapToInt(c -> cat_to_map.containsKey(c) ? cat_to_map.get(c).level : 0).max().getAsInt();
-        int cat_a_level = cats_a.stream().mapToInt(c -> cat_to_map.containsKey(c) ? cat_to_map.get(c).level : 0).max().getAsInt();
-        int cat_b_level = cats_b.stream().mapToInt(c -> cat_to_map.containsKey(c) ? cat_to_map.get(c).level : 0).max().getAsInt();
-
-        //check if both category sets are in similar difference
-        double cat_level_diff = Math.abs(Math.abs(cat_a_level - lca_cat_level) - Math.abs(cat_b_level - lca_cat_level)) / 2.0;
-
-        //get the shortest paths to LCA categories
-        List<Integer> sp_a = new ArrayList<>();
-        List<Integer> sp_b = new ArrayList<>();
-        for (String lca_cat : lca_cats) {
-            int lca_cat_id = ceg.node_index.get(lca_cat);
-            for (String cat_a : cats_a) {
-                List<Integer> path = sp.getPath(lca_cat_id, ceg.node_index.get(cat_a));
-                if (path != null) {
-                    sp_a.add(path.size());
-                }
-            }
-            for (String cat_b : cats_b) {
-                List<Integer> path = sp.getPath(lca_cat_id, ceg.node_index.get(cat_b));
-                if (path != null) {
-                    sp_b.add(path.size());
-                }
-            }
-        }
-
-        double min_sp_a = sp_a.stream().mapToDouble(l -> l).min().getAsDouble();
-        double min_sp_b = sp_b.stream().mapToDouble(l -> l).min().getAsDouble();
-        double max_sp_a = sp_a.stream().mapToDouble(l -> l).max().getAsDouble();
-        double max_sp_b = sp_b.stream().mapToDouble(l -> l).max().getAsDouble();
-        double mean_sp_a = sp_a.stream().mapToDouble(l -> l).average().getAsDouble();
-        double mean_sp_b = sp_b.stream().mapToDouble(l -> l).average().getAsDouble();
-
-
-        return new double[]{cat_level_diff, Math.abs(min_sp_a - min_sp_b) / 2.0, Math.abs(max_sp_a - max_sp_b) / 2.0, Math.abs(mean_sp_a - mean_sp_b) / 2.0};
     }
 
     /**
@@ -250,16 +230,10 @@ public class ArticleCandidates {
     public double[] computeCategorySim(Set<String> cats_a, Set<String> cats_b) {
         List<Double> scores = new ArrayList<>();
         for (String cat_a : cats_a) {
-            if (!cat_weights.containsKey(cat_a)) {
-                continue;
-            }
-            TIntDoubleHashMap cat_weights_a = cat_weights.get(cat_a);
+            int cat_a_hash = cat_a.hashCode();
             for (String cat_b : cats_b) {
-                if (!cat_weights.containsKey(cat_b)) {
-                    continue;
-                }
-                TIntDoubleHashMap cat_weights_b = cat_weights.get(cat_b);
-                double score = DataUtils.computeEuclideanDistance(cat_weights_a, cat_weights_b);
+                int cat_b_hash = cat_b.hashCode();
+                double score = cat_sim.containsKey(cat_a_hash) && cat_sim.get(cat_a_hash).containsKey(cat_b_hash) ? cat_sim.get(cat_a_hash).get(cat_b_hash) : Double.MAX_VALUE;
                 scores.add(score);
             }
         }
@@ -282,16 +256,11 @@ public class ArticleCandidates {
      */
     public double[] computeCategoryEmbeddSim(Set<String> cats_a, Set<String> cats_b) {
         List<Double> scores = new ArrayList<>();
-
-        int num_dimensions = ceg.getEmbeddDimension();
+        int num_dimensions = 256;
         for (String cat_a : cats_a) {
+            TDoubleArrayList cat_a_embedd = node2vec.get(cat_a.replaceAll(" ", "_"));
             for (String cat_b : cats_b) {
-                if (!ceg.node_index.containsKey(cat_a) || !ceg.node_index.containsKey(cat_b)) {
-                    System.out.printf("Categories %finished_gt_seeds \t %finished_gt_seeds are missing.\n", cat_a, cat_b);
-                    continue;
-                }
-                TDoubleArrayList cat_a_embedd = ceg.getEmbeddingByKey(cat_a);
-                TDoubleArrayList cat_b_embedd = ceg.getEmbeddingByKey(cat_b);
+                TDoubleArrayList cat_b_embedd = node2vec.get(cat_b.replaceAll(" ", "_"));
 
                 //compute the cosine similarity
                 double score = 0;

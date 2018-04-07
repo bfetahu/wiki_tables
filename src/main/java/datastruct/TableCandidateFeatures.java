@@ -8,6 +8,7 @@ import utils.DataUtils;
 
 import java.io.Serializable;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Created by besnik on 12/8/17.
@@ -199,6 +200,14 @@ public class TableCandidateFeatures implements Serializable {
     public static TableCandidateFeatures measureArticleCandidateScore(String article_a, String article_b, Map<String, Set<String>> article_categories, Map<String, CategoryRepresentation> cat_to_map) {
         Set<String> article_a_cats = article_categories.get(article_a);
         Set<String> article_b_cats = article_categories.get(article_b);
+
+        if (article_a_cats != null) {
+            article_a_cats = article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).collect(Collectors.toSet());
+        }
+
+        if (article_b_cats != null) {
+            article_b_cats = article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).collect(Collectors.toSet());
+        }
 
         Set<String> lca_cats = DataUtils.findLCACategories(article_a_cats, article_b_cats, cat_to_map);
         if (lca_cats != null) {

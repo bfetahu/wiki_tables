@@ -1,22 +1,34 @@
 package test;
 
+import gnu.trove.list.array.TDoubleArrayList;
 import io.FileUtils;
+import utils.DataUtils;
 
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Created by besnik on 3/12/18.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
-        Double[] scores = {0.1, 0.3, 0.2, 0.6, 0.7};
-        Arrays.sort(scores);
+        String[] lines = FileUtils.readText("/Users/besnik/Desktop/test.tsv").split("\n");
 
-        for (double s : scores) {
-            System.out.println(s);
+        TDoubleArrayList a = new TDoubleArrayList();
+        TDoubleArrayList b = new TDoubleArrayList();
+
+        String[] data_a = lines[0].split(" ");
+        String[] data_b = lines[1].split(" ");
+
+        for (int i = 1; i < data_a.length; i++) {
+            a.add(Double.parseDouble(data_a[i]));
+            b.add(Double.parseDouble(data_b[i]));
         }
 
-
+        double score = DataUtils.computeCosineSim(a, b);
+        System.out.println(score);
     }
 
     private static void cummulativeCoverage() {

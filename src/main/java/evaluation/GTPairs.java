@@ -260,7 +260,7 @@ public class GTPairs {
 
         System.out.println(entity_cats.size());
 
-        ArticleCandidates ac = new ArticleCandidates(cat);
+        ArticleCandidates ac = new ArticleCandidates();
         StringBuffer sb = new StringBuffer();
         //set num entities for each category.
         DataUtils.updateCatsWithEntities(cat, cats_entities);
