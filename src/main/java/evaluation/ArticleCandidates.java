@@ -146,7 +146,7 @@ public class ArticleCandidates {
         }
 
         FileUtils.saveText(sb.toString(), out_file, true);
-        System.out.printf("Finished filtering the main feature file based on the %s similarity with a threshold of %.2f.\nThere are in total %d matching instances out of which %d are true.\n", sim_threshold, filter_tag, total, true_total);
+        System.out.printf("Finished filtering the main feature file based on the %s similarity with a threshold of %.2f.\nThere are in total %d matching instances out of which %d are true.\n", filter_tag, sim_threshold, total, true_total);
     }
 
     /**
