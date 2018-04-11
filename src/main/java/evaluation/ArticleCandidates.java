@@ -313,8 +313,14 @@ public class ArticleCandidates {
         int num_dimensions = 256;
         for (String cat_a : cats_a) {
             TDoubleArrayList cat_a_embedd = node2vec.get(cat_a.replaceAll(" ", "_"));
+            if (cat_a_embedd == null) {
+                continue;
+            }
             for (String cat_b : cats_b) {
                 TDoubleArrayList cat_b_embedd = node2vec.get(cat_b.replaceAll(" ", "_"));
+                if (cat_b_embedd == null) {
+                    continue;
+                }
 
                 //compute the cosine similarity
                 double score = 0;
@@ -327,6 +333,10 @@ public class ArticleCandidates {
                 score /= (sum_a * sum_b);
                 scores.add(score);
             }
+        }
+
+        if (scores.isEmpty()) {
+            return new double[3];
         }
 
         double min = scores.stream().mapToDouble(x -> x).min().getAsDouble();
