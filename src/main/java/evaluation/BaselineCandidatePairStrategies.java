@@ -197,7 +197,7 @@ public class BaselineCandidatePairStrategies {
             for (double score : candidates.keySet()) {
                 TIntHashSet cumm = new TIntHashSet(entities.get(score));
                 candidates.keySet().stream().filter(score_cmp -> score_cmp >= score).forEach(score_cmp -> cumm.addAll(entities.get(score_cmp)));
-                gt_idx.retainAll(cumm);
+                cumm.retainAll(gt_idx);
                 cumm_entities.put(score, new AbstractMap.SimpleEntry<>(cumm.size(), gt_idx.size()));
             }
 

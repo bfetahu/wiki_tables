@@ -1,68 +1,202 @@
 package test;
 
 import gnu.trove.list.array.TDoubleArrayList;
+import gnu.trove.map.hash.TIntDoubleHashMap;
 import io.FileUtils;
 import utils.DataUtils;
 
-import java.util.AbstractMap;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.text.DecimalFormat;
+import java.util.*;
 
 /**
  * Created by besnik on 3/12/18.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
-        String[] lines = FileUtils.readText("/Users/besnik/Desktop/test.tsv").split("\n");
 
-        TDoubleArrayList a = new TDoubleArrayList();
-        TDoubleArrayList b = new TDoubleArrayList();
+//        computeSentenceSimSimple(args);
+        System.exit(0);
 
-        String[] data_a = lines[0].split(" ");
-        String[] data_b = lines[1].split(" ");
+        String file = args[0];
+        String outfile = args[1];
+        Map<String, Set<String>> gt = FileUtils.readMapSet(args[2], "\t");
+        int field = Integer.parseInt(args[3]);
 
-        for (int i = 1; i < data_a.length; i++) {
-            a.add(Double.parseDouble(data_a[i]));
-            b.add(Double.parseDouble(data_b[i]));
-        }
-
-        double score = DataUtils.computeCosineSim(a, b);
-        System.out.println(score);
+        computeCoverage(file, outfile, gt, field);
     }
 
-    private static void cummulativeCoverage() {
-        String[] lines = FileUtils.readText("/Users/besnik/Documents/L3S/wiki_tables/data/evaluation/coverage/coverage_experiments/entity_embedding_coverage.tsv").split("\n");
-        Map<String, Map<Double, Map.Entry<Double, Integer>>> entity_overlap = new HashMap<>();
+    public static void computeSentenceSimSimple(String[] args) throws IOException {
+        Map<String, String> ea = DataUtils.loadEntityAbstracts(args[0]);
+        Map<String, TIntDoubleHashMap> tfidfscores = DataUtils.computeTFIDF(ea);
 
-        for (String line : lines) {
-            String[] data = line.split("\t");
-            if (data[1].equals("0")) {
+        Set<String> seeds = FileUtils.readIntoSet(args[1], "\n", false);
+        Set<String> filter = FileUtils.readIntoSet(args[2], "\n", false);
+        Map<String, Set<String>> gt = FileUtils.readMapSet(args[3], "\t");
+
+        String out_file = args[4];
+        for (String entity : seeds) {
+            if (!ea.containsKey(entity)) {
+                System.out.printf("There is no abstract for entity %s.\n", entity);
                 continue;
             }
+            List<String> feature_lines = new ArrayList<>();
+            List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
 
-            String entity = data[0];
-            double score = Double.parseDouble(data[2]);
-            double overlap = Double.parseDouble(data[6]);
-            int candidates = Integer.parseInt(data[3]);
-
-            if (!entity_overlap.containsKey(entity)) {
-                entity_overlap.put(entity, new TreeMap<>());
-            }
-            entity_overlap.get(entity).put(score, new AbstractMap.SimpleEntry<>(overlap, candidates));
-        }
-
-        double[] cutoffs = new double[]{0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0};
-
-        for (String entity : entity_overlap.keySet()) {
-            for (double cutoff : cutoffs) {
-                double coverage = entity_overlap.get(entity).entrySet().stream().filter(s -> s.getKey() >= cutoff).mapToDouble(s -> s.getValue().getKey()).sum();
-                int candidates = entity_overlap.get(entity).entrySet().stream().filter(s -> s.getKey() >= cutoff).mapToInt(s -> s.getValue().getValue()).sum();
-
-                if (coverage != 0) {
-                    System.out.printf("%s\t%.2f\t%.2f\t%d\n", entity, cutoff, coverage, candidates);
+            int gt_total = gt.containsKey(entity) ? gt.get(entity).size() : 0;
+            filter.parallelStream().forEach(entity_candidate -> {
+                if (!ea.containsKey(entity_candidate)) {
+                    System.out.printf("There is no abstract for entity %s.\n", entity_candidate);
+                    return;
                 }
-            }
+                double score = DataUtils.computeCosine(tfidfscores.get(entity), tfidfscores.get(entity_candidate));
+                //create for each of these pairs the features
+                boolean label = gt.containsKey(entity) && gt.get(entity).contains(entity_candidate);
+
+                StringBuffer sb = new StringBuffer();
+                sb.append(entity).append("\t").append(gt_total).append("\t").append(entity_candidate).append("\t").append(score).append("\t").append(label).append("\n");
+                concurrent_fl.add(sb.toString());
+            });
+
+            StringBuffer sb = new StringBuffer();
+            concurrent_fl.forEach(s -> sb.append(s));
+            FileUtils.saveText(sb.toString(), out_file, true);
         }
     }
+
+
+    public static void computeSentenceSim(String[] args) throws IOException {
+        Map<String, TDoubleArrayList> w2v = DataUtils.loadWord2Vec(args[0]);
+        Map<String, String> ea = DataUtils.loadEntityAbstracts(args[1]);
+
+        Set<String> seeds = FileUtils.readIntoSet(args[2], "\n", false);
+        Set<String> filter = FileUtils.readIntoSet(args[3], "\n", false);
+        Map<String, Set<String>> gt = FileUtils.readMapSet(args[4], "\t");
+
+        Map<String, Map<Integer, TDoubleArrayList>> avg_wsv = new HashMap<>();
+        filter.stream().filter(e -> ea.containsKey(e)).forEach(e -> avg_wsv.put(e, computeAvgSentenceW2V(ea.get(e), w2v)));
+
+        String out_file = "entity_abs_sim.tsv";
+        for (String entity : seeds) {
+            if (!avg_wsv.containsKey(entity)) {
+                System.out.printf("There is no abstract for entity %s.\n", entity);
+                continue;
+            }
+            List<String> feature_lines = new ArrayList<>();
+            List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
+
+            int gt_total = gt.containsKey(entity) ? gt.get(entity).size() : 0;
+            filter.parallelStream().forEach(entity_candidate -> {
+                if (!avg_wsv.containsKey(entity_candidate)) {
+                    System.out.printf("There is no abstract for entity %s.\n", entity_candidate);
+                    return;
+                }
+                Map<Integer, Map.Entry<Integer, Double>> sim = computeSentenceSim(avg_wsv.get(entity), avg_wsv.get(entity_candidate));
+                //create for each of these pairs the features
+                boolean label = gt.containsKey(entity) && gt.get(entity).contains(entity_candidate);
+
+                StringBuffer sb = new StringBuffer();
+                sb.append(entity).append("\t").append(gt_total).append("\t").append(entity_candidate);
+                sim.keySet().stream().filter(k -> k <= 10).forEach(k -> sb.append("\t").append(sim.get(k).getKey()).append("\t").append(sim.get(k).getValue()));
+                sb.append("\t").append(label).append("\n");
+                concurrent_fl.add(sb.toString());
+            });
+
+            StringBuffer sb = new StringBuffer();
+            concurrent_fl.forEach(s -> sb.append(s));
+            FileUtils.saveText(sb.toString(), out_file, true);
+        }
+
+
+    }
+
+    public static void computeCoverage(String file, String outfile, Map<String, Set<String>> gt, int field_index) throws IOException {
+        Map<String, Map<Double, Set<String>>> entities = new HashMap<>();
+        BufferedReader reader = FileUtils.getFileReader(file);
+
+        DecimalFormat df = new DecimalFormat("#.0");
+        String line;
+        while ((line = reader.readLine()) != null) {
+            String[] tmp = line.split("\t");
+
+            String seed_entity = tmp[0];
+            String candidate = tmp[2];
+
+            if (!entities.containsKey(seed_entity)) {
+                entities.put(seed_entity, new TreeMap<>());
+            }
+
+            double score = Double.parseDouble(df.format(Double.parseDouble(tmp[field_index])));
+            if (!entities.get(seed_entity).containsKey(score)) {
+                entities.get(seed_entity).put(score, new HashSet<>());
+            }
+            entities.get(seed_entity).get(score).add(candidate);
+        }
+
+        FileUtils.saveText("entity\tgt_total\tsim\tall_candidates\toverlap\tunaligned_entities\taligned_ratio\tunaligned_ratio\n", outfile);
+
+        for (String entity : entities.keySet()) {
+            Map<Double, Map.Entry<Integer, Integer>> cumm_entities = new TreeMap<>();
+            int gt_total = gt.containsKey(entity) ? gt.get(entity).size() : 0;
+            Set<String> gt_entities = gt.containsKey(entity) ? gt.get(entity) : new HashSet<>();
+            for (double score : entities.get(entity).keySet()) {
+                Set<String> cumm = new HashSet<>();
+                entities.get(entity).keySet().stream().filter(score_cmp -> score_cmp >= score).forEach(score_cmp -> cumm.addAll(entities.get(entity).get(score_cmp)));
+
+                int cumm_size = cumm.size();
+                cumm.retainAll(gt_entities);
+                int coverage = cumm.size();
+                cumm_entities.put(score, new AbstractMap.SimpleEntry<>(cumm_size, coverage));
+            }
+
+            //output the data
+            StringBuffer sb = new StringBuffer();
+            for (double score : cumm_entities.keySet()) {
+                int candidate_total = cumm_entities.get(score).getKey();
+                int overlapping = cumm_entities.get(score).getValue();
+
+                int additional = candidate_total - overlapping;
+                double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
+                double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
+                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).
+                        append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
+                        append("\t").append(unaligned_ratio).append("\n");
+            }
+            FileUtils.saveText(sb.toString(), outfile, true);
+        }
+    }
+
+    public static Map<Integer, TDoubleArrayList> computeAvgSentenceW2V(String text, Map<String, TDoubleArrayList> w2v) {
+        String[] sentences = text.split("\\.\\s+");
+        Map<Integer, TDoubleArrayList> avg_w2v_s = new TreeMap<>();
+
+        for (int i = 0; i < sentences.length; i++) {
+            avg_w2v_s.put(i, DataUtils.computeAverageWordVector(sentences[i], w2v));
+        }
+
+        return avg_w2v_s;
+    }
+
+    public static Map<Integer, Map.Entry<Integer, Double>> computeSentenceSim(Map<Integer, TDoubleArrayList> avg_w2vs_a, Map<Integer, TDoubleArrayList> avg_w2vs_b) {
+        Map<Integer, Map.Entry<Integer, Double>> sent_sim = new TreeMap<>();
+        for (int i : avg_w2vs_a.keySet()) {
+            TDoubleArrayList avg_a = avg_w2vs_a.get(i);
+            double max_sim = 0.0;
+            int max_idx = -1;
+            for (int j : avg_w2vs_b.keySet()) {
+                TDoubleArrayList avg_b = avg_w2vs_b.get(j);
+                double score = DataUtils.computeCosineSim(avg_a, avg_b);
+
+                if (score > max_sim) {
+                    max_sim = score;
+                    max_idx = j;
+                }
+            }
+
+            sent_sim.put(i, new AbstractMap.SimpleEntry<>(max_idx, max_sim));
+        }
+        return sent_sim;
+    }
+
 }

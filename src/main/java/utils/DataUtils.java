@@ -9,7 +9,6 @@ import gnu.trove.set.hash.TIntHashSet;
 import io.FileUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import representation.CategoryEntityGraph;
 import representation.CategoryRepresentation;
 
 import java.io.BufferedReader;
@@ -312,12 +311,19 @@ public class DataUtils {
      * @return
      */
     public static double computeCosine(TIntDoubleHashMap weights_a, TIntDoubleHashMap weights_b) {
-        if (weights_a.isEmpty() || weights_b.isEmpty()) {
+        if (weights_a == null || weights_b == null || weights_a.isEmpty() || weights_b.isEmpty()) {
             return 0.0;
         }
 
         TIntHashSet all_keys = new TIntHashSet(weights_a.keySet());
         all_keys.addAll(weights_b.keySet());
+
+        TIntHashSet common_keys = new TIntHashSet(weights_a.keySet());
+        common_keys.retainAll(weights_b.keys());
+
+        if (common_keys.isEmpty()) {
+            return 0.0;
+        }
 
         double[] a = new double[all_keys.size()];
         double[] b = new double[all_keys.size()];
@@ -329,7 +335,7 @@ public class DataUtils {
             b[i] = weights_b.containsKey(keys[i]) ? weights_b.get(keys[i]) : 0;
         }
 
-        double score = Arrays.stream(keys).mapToDouble(key -> a[key] * b[key]).sum();
+        double score = Arrays.stream(common_keys.toArray()).mapToDouble(key -> weights_a.get(key) * weights_b.get(key)).sum();
         double sum_a = Arrays.stream(a).map(x -> Math.pow(x, 2)).sum();
         double sum_b = Arrays.stream(b).map(x -> Math.pow(x, 2)).sum();
 
@@ -724,6 +730,81 @@ public class DataUtils {
     /**
      * Generate an average word vector for a given text.
      *
+     * @param text
+     * @param word2vec
+     * @return
+     */
+    public static TDoubleArrayList computeAverageWordVector(String text, Set<String> stopwords, Map<String, TDoubleArrayList> word2vec) {
+        if (text == null || text.isEmpty() || word2vec == null) {
+            return null;
+        }
+        String[] a = text.toLowerCase().split(" ");
+
+        //compute average word vectors
+        TDoubleArrayList avg_a = new TDoubleArrayList();
+        for (String key : a) {
+            if (!word2vec.containsKey(key) || stopwords.contains(key)) {
+                continue;
+            }
+
+            double[] w2v_arr = word2vec.get(key).toArray();
+            if (avg_a.isEmpty()) {
+                avg_a.addAll(w2v_arr);
+            } else {
+                for (int i = 0; i < w2v_arr.length; i++) {
+                    avg_a.set(i, avg_a.get(i) + w2v_arr[i]);
+                }
+            }
+        }
+
+        TDoubleArrayList avg = new TDoubleArrayList();
+        for (double val : avg_a.toArray()) {
+            double score = val / avg_a.size();
+            avg.add(score);
+        }
+        return avg;
+    }
+
+    /**
+     * Generate an average word vector for a given text.
+     *
+     * @param words
+     * @param word2vec
+     * @return
+     */
+    public static TDoubleArrayList computeAverageWordVector(Set<String> words, Map<String, TDoubleArrayList> word2vec) {
+        if (words == null || words.isEmpty() || word2vec == null) {
+            return null;
+        }
+
+        //compute average word vectors
+        TDoubleArrayList avg_a = new TDoubleArrayList();
+        for (String key : words) {
+            if (!word2vec.containsKey(key)) {
+                continue;
+            }
+
+            double[] w2v_arr = word2vec.get(key).toArray();
+            if (avg_a.isEmpty()) {
+                avg_a.addAll(w2v_arr);
+            } else {
+                for (int i = 0; i < w2v_arr.length; i++) {
+                    avg_a.set(i, avg_a.get(i) + w2v_arr[i]);
+                }
+            }
+        }
+
+        TDoubleArrayList avg = new TDoubleArrayList();
+        for (double val : avg_a.toArray()) {
+            double score = val / avg_a.size();
+            avg.add(score);
+        }
+        return avg;
+    }
+
+    /**
+     * Generate an average word vector for a given text.
+     *
      * @param cats
      * @param node2vec
      * @return
@@ -737,6 +818,9 @@ public class DataUtils {
         TDoubleArrayList avg_a = new TDoubleArrayList();
         for (String cat : cats) {
             TDoubleArrayList emb = node2vec.get(cat.replaceAll(" ", "_"));
+            if (emb == null || emb.isEmpty()) {
+                continue;
+            }
 
             if (avg_a.isEmpty()) {
                 avg_a.addAll(emb);
@@ -782,5 +866,76 @@ public class DataUtils {
         return entity_abstracts;
     }
 
+
+    /**
+     * Compute the TF-IDF scores of the entity abstracts.
+     *
+     * @param ea
+     * @return
+     */
+    public static Map<String, TIntDoubleHashMap> computeTFIDF(Map<String, String> ea) {
+        TIntObjectHashMap<TIntHashSet> idf = new TIntObjectHashMap<>();
+        TIntObjectHashMap<TIntIntHashMap> tf = new TIntObjectHashMap<>();
+
+        Map<String, Integer> dict = new HashMap<>();
+
+        int word_id = 0;
+        for (String entity : ea.keySet()) {
+            int entity_id = entity.hashCode();
+            String text = ea.get(entity);
+            String[] words = text.split("\\s+");
+
+            TIntIntHashMap sub_tf = new TIntIntHashMap();
+            tf.put(entity.hashCode(), sub_tf);
+            for (String word : words) {
+                if (!dict.containsKey(word)) {
+                    dict.put(word, word_id);
+                    word_id++;
+                }
+
+                int word_index = dict.get(word);
+                if (!idf.containsKey(word_index)) {
+                    idf.put(word_index, new TIntHashSet());
+                }
+                idf.get(word_index).add(entity_id);
+                if (!sub_tf.containsKey(word_index)) {
+                    sub_tf.put(word_index, 0);
+                }
+                sub_tf.put(word_index, sub_tf.get(word_index) + 1);
+            }
+        }
+
+        Map<String, TIntDoubleHashMap> tfidf_scores = new HashMap<>();
+        double N = ea.size();
+        for (String entity : ea.keySet()) {
+            int entity_id = entity.hashCode();
+            TIntIntHashMap tf_scores = tf.get(entity_id);
+            TIntDoubleHashMap scores = new TIntDoubleHashMap();
+            tfidf_scores.put(entity, scores);
+
+            for (int word_index : tf_scores.keys()) {
+                double score = tf_scores.get(word_index) * Math.log(N / idf.get(word_index).size());
+                scores.put(word_index, score);
+            }
+        }
+        return tfidf_scores;
+    }
+
+    /**
+     * Compute the jaccard similarity over two sets.
+     *
+     * @param a
+     * @param b
+     * @return
+     */
+    public static double computeJaccardSimilarity(Set<String> a, Set<String> b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) {
+            return 0.0;
+        }
+        Set<String> common = new HashSet<>(a);
+        common.retainAll(b);
+
+        return common.size() / (double) (a.size() + b.size() - common.size());
+    }
 
 }

@@ -41,13 +41,19 @@ public class ArticleCandidates {
 
     //keep the entity abstracts
     public static Map<String, String> entity_abstracts = new HashMap<>();
+    public static Map<String, TIntDoubleHashMap> tfidfscores = new HashMap<>();
+    public static Map<String, Set<String>> first_words = new HashMap<>();
 
     //keep the cat similarities
     public static TIntObjectHashMap<TIntDoubleHashMap> cat_sim;
 
+    //load the list of stop words
+    public static Set<String> stop_words;
+
     public static void main(String[] args) throws IOException, InterruptedException {
-        String out_dir = "", table_data = "", option = "", feature_file = "";
+        String out_dir = "", table_data = "", option = "", feature_file = "", filter_tag = "";
         double sim_threshold = 0.0;
+        int filter_index = 0;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-out_dir")) {
                 out_dir = args[++i];
@@ -70,6 +76,7 @@ public class ArticleCandidates {
                 System.out.println("Finished so far: " + finished_gt_seeds.toString());
             } else if (args[i].equals("-abstracts")) {
                 entity_abstracts = DataUtils.loadEntityAbstracts(args[++i]);
+                tfidfscores = DataUtils.computeTFIDF(entity_abstracts);
             } else if (args[i].equals("-cat_sim")) {
                 cat_sim = DataUtils.loadCategoryRepSim(args[++i]);
             } else if (args[i].equals("-option")) {
@@ -78,6 +85,12 @@ public class ArticleCandidates {
                 sim_threshold = Double.parseDouble(args[++i]);
             } else if (args[i].equals("-features")) {
                 feature_file = args[++i];
+            } else if (args[i].equals("-stop_words")) {
+                stop_words = FileUtils.readIntoSet(args[++i], "\n", false);
+            } else if (args[i].equals("-filter_index")) {
+                filter_index = Integer.parseInt(args[++i]);
+            } else if (args[i].equals("-filter_tag")) {
+                filter_tag = args[++i];
             }
         }
         ArticleCandidates ac = new ArticleCandidates();
@@ -88,7 +101,7 @@ public class ArticleCandidates {
             //compute the features.
             ac.scoreTableCandidatesApproach(out_dir);
         } else if (option.equals("filter_features")) {
-            ac.filterFeaturesByEntityEmb(feature_file, sim_threshold, out_dir);
+            ac.filterFeaturesByEntityEmb(feature_file, sim_threshold, filter_index, filter_tag, out_dir);
         }
     }
 
@@ -98,26 +111,32 @@ public class ArticleCandidates {
      *
      * @param feature_file
      */
-    public void filterFeaturesByEntityEmb(String feature_file, double sim_threshold, String out_dir) throws IOException {
+    public void filterFeaturesByEntityEmb(String feature_file, double sim_threshold, int filter_index, String filter_tag, String out_dir) throws IOException {
         BufferedReader reader = FileUtils.getFileReader(feature_file);
         String line;
 
         StringBuffer sb = new StringBuffer();
-        String out_file = out_dir + "/entity_emb_filtered_features.tsv";
+        String out_file = out_dir + "/entity_" + filter_tag + "_features_" + sim_threshold + ".tsv";
         int line_counter = 0;
+        int total = 0, true_total = 0;
         while ((line = reader.readLine()) != null) {
             String[] data = line.split("\t");
 
             if (line_counter == 0) {
-                sb.append(line);
+                FileUtils.saveText(line + "\n", out_file);
                 line_counter++;
                 continue;
             }
 
             //we filter by the embedding similarity between the entity pair. the similarity is in the 8th column
-            double sim = Double.parseDouble(data[15]);
+            double sim = Double.parseDouble(data[filter_index]);
             if (sim >= sim_threshold) {
                 sb.append(line).append("\n");
+                total++;
+
+                if (line.endsWith("true")) {
+                    true_total++;
+                }
             }
 
             if (sb.length() > 10000) {
@@ -127,7 +146,7 @@ public class ArticleCandidates {
         }
 
         FileUtils.saveText(sb.toString(), out_file, true);
-        System.out.printf("Finished filtering the main feature file based on the entity embedding similarity with a threshold of %.2f.\n", sim_threshold);
+        System.out.printf("Finished filtering the main feature file based on the %s similarity with a threshold of %.2f.\nThere are in total %d matching instances out of which %d are true.\n", sim_threshold, filter_tag, total, true_total);
     }
 
     /**
@@ -139,6 +158,7 @@ public class ArticleCandidates {
     public void scoreTableCandidatesApproach(String out_dir) throws IOException {
         StringBuffer header = new StringBuffer();
         header.append("entity_a\tentity_b\tmin_cat_rep_sim\tmax_cat_rep_sim\tmean_cat_rep_sim\t");
+        header.append("same_cats\toverlap_cats_no\tentity_tfidf_sim\tjacc_firstwords_sim\tw2v_firstwords_sim\t");
         header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\t");
         header.append("mean_distance_col\tmin_col_w2v_sim\tmax_col_w2v_sim\tmean_col_w2v_sim\t");
         header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\te_n2v_ec\tavg_n2v_cat_sim\tabs_sim\tlabel\n");
@@ -146,11 +166,27 @@ public class ArticleCandidates {
 
         //since we reuse the average word vectors we create them first and then reuse.
         Map<String, TDoubleArrayList> avg_w2v = new HashMap<>();
-        seed_entities.stream().filter(e -> !finished_gt_seeds.contains(e)).forEach(entity -> avg_w2v.put(entity, DataUtils.computeAverageWordVector(entity_abstracts.get(entity), word2vec)));
+        filter_entities.stream().forEach(entity -> avg_w2v.put(entity, DataUtils.computeAverageWordVector(entity_abstracts.get(entity), stop_words, word2vec)));
         //compute the average vectors of the categories of an entity.
         Map<String, TDoubleArrayList> avg_cat_n2v = new HashMap<>();
-        seed_entities.stream().filter(e -> !finished_gt_seeds.contains(e)).forEach(entity -> avg_cat_n2v.put(entity, DataUtils.computeGraphAverageEmbedding(entity_cats.get(entity), node2vec)));
+        filter_entities.stream().forEach(entity -> avg_cat_n2v.put(entity, DataUtils.computeGraphAverageEmbedding(entity_cats.get(entity), node2vec)));
 
+        filter_entities.stream().forEach(entity -> {
+            if (entity_abstracts.containsKey(entity)) {
+                String[] words = entity_abstracts.get(entity).toLowerCase().split("\\s+");
+                Set<String> words_set = new HashSet<>();
+                for (String word : words) {
+                    if (stop_words.contains(word)) {
+                        continue;
+                    }
+                    if (words_set.size() > 10) {
+                        break;
+                    }
+                    words_set.add(word);
+                }
+                first_words.put(entity, words_set);
+            }
+        });
         //filter the filter entities to only those that contain tables.
         filter_entities = filter_entities.stream().filter(e -> tables.containsKey(e)).collect(Collectors.toSet());
         for (String entity : seed_entities) {
@@ -179,6 +215,12 @@ public class ArticleCandidates {
 
                 //add all the category representation similarities
                 double[] cat_rep_sim = computeCategorySim(entity_cats_a, entity_cats_candidate);
+                boolean same_cats = entity_cats_a.equals(entity_cats_candidate);
+                Set<String> cats_common = new HashSet<>(entity_cats_a);
+                cats_common.retainAll(entity_cats_candidate);
+                int common_cats = cats_common.size();
+                double score = DataUtils.computeCosine(tfidfscores.get(entity), tfidfscores.get(entity_candidate));
+                double[] firstwords_sim = computeFirstWordsSentenceSimilarity(entity, entity_candidate);
 
                 //add all the table column similarities
                 double[] tbl_sim = computeTableFeatures(entity, entity_candidate);
@@ -192,6 +234,8 @@ public class ArticleCandidates {
                 sb.append(entity).append("\t").append(entity_candidate).append("\t");
 
                 IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
+                sb.append(same_cats).append("\t").append(common_cats).append("\t").append(score).append("\t").append(firstwords_sim[0]).append("\t").append(firstwords_sim[1]).append("\t");
+
                 IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
                 IntStream.range(0, cat_emb_sim.length).forEach(i -> sb.append(cat_emb_sim[i]).append("\t"));
                 sb.append(e_n2v_ec).append("\t").append(avg_cat_n2v_sim).append("\t");
@@ -405,6 +449,26 @@ public class ArticleCandidates {
         TDoubleArrayList avg_a = DataUtils.computeAverageWordVector(str_a, word2vec);
         TDoubleArrayList avg_b = DataUtils.computeAverageWordVector(str_b, word2vec);
         return DataUtils.computeCosineSim(avg_a, avg_b);
+    }
+
+    /**
+     * We check if the sentences contain similar phrases that might reveal that the entities are of the same topic
+     * or talk about similar concepts.
+     *
+     * @param entity_a
+     * @param entity_b
+     */
+    public static double[] computeFirstWordsSentenceSimilarity(String entity_a, String entity_b) {
+        Set<String> first_words_a = first_words.get(entity_a);
+        Set<String> first_words_b = first_words.get(entity_b);
+
+        //compute the jaccard similarity and the cosine similarity based on the word embeddings.
+        double jacc_sim = DataUtils.computeJaccardSimilarity(first_words_a, first_words_b);
+
+        TDoubleArrayList w2v_a = DataUtils.computeAverageWordVector(first_words_a, word2vec);
+        TDoubleArrayList w2v_b = DataUtils.computeAverageWordVector(first_words_b, word2vec);
+        double cosine_sim = DataUtils.computeCosineSim(w2v_a, w2v_b);
+        return new double[]{jacc_sim, cosine_sim};
     }
 
 
