@@ -305,6 +305,10 @@ public class ArticleCandidates {
      * @return
      */
     public double[] computeCategoryEmbeddSim(Set<String> cats_a, Set<String> cats_b) {
+        if (cats_a == null || cats_b == null) {
+            return new double[3];
+        }
+
         List<Double> scores = new ArrayList<>();
         int num_dimensions = 256;
         for (String cat_a : cats_a) {
