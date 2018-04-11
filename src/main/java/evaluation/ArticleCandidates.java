@@ -203,7 +203,6 @@ public class ArticleCandidates {
 
             filter_entities.parallelStream().forEach(entity_candidate -> {
                 long time = System.nanoTime();
-                System.out.println("Processing pair " + entity + "\t" + entity_candidate);
                 TDoubleArrayList entity_candidate_emb = node2vec.get(entity_candidate.replaceAll(" ", "_"));
 
                 StringBuffer sb = new StringBuffer();
@@ -283,12 +282,15 @@ public class ArticleCandidates {
             int cat_a_hash = cat_a.hashCode();
             for (String cat_b : cats_b) {
                 int cat_b_hash = cat_b.hashCode();
-                double score = cat_sim.containsKey(cat_a_hash) && cat_sim.get(cat_a_hash).containsKey(cat_b_hash) ? cat_sim.get(cat_a_hash).get(cat_b_hash) : Double.MAX_VALUE;
-                scores.add(score);
+
+                if (cat_sim.containsKey(cat_a_hash) && cat_sim.get(cat_a_hash).containsKey(cat_b_hash)) {
+                    double score = cat_sim.get(cat_a_hash).get(cat_b_hash);
+                    scores.add(score);
+                }
             }
         }
         if (scores.isEmpty()) {
-            return new double[3];
+            return new double[]{-1, -1, -1};
         }
 
         double min = scores.stream().mapToDouble(x -> x).min().getAsDouble();
