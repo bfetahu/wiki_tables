@@ -202,19 +202,32 @@ public class BaselineCandidatePairStrategies {
             }
 
             //output the data
-            StringBuffer sb = new StringBuffer();
-            for (double score : cumm_entities.keySet()) {
-                int candidate_total = cumm_entities.get(score).getKey();
-                int overlapping = cumm_entities.get(score).getValue();
-                int additional = candidate_total - overlapping;
-                double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
-                double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
-                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).
-                        append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
-                        append("\t").append(unaligned_ratio).append("\n");
-            }
-            FileUtils.saveText(sb.toString(), out_file, true);
+            String coverage_stats = writeCoverageStats(cumm_entities, gt_total, entity);
+            FileUtils.saveText(coverage_stats, out_file, true);
         }
+    }
+
+    /**
+     * Write the coverage statistics in a standard format we are using.
+     * @param cumm_entities
+     * @param gt_total
+     * @param entity
+     * @return
+     */
+    public static String writeCoverageStats(Map<Double, Map.Entry<Integer, Integer>> cumm_entities, int gt_total, String entity) {
+        //output the data
+        StringBuffer sb = new StringBuffer();
+        for (double score : cumm_entities.keySet()) {
+            int candidate_total = cumm_entities.get(score).getKey();
+            int overlapping = cumm_entities.get(score).getValue();
+            int additional = candidate_total - overlapping;
+            double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
+            double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
+            sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).
+                    append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
+                    append("\t").append(unaligned_ratio).append("\n");
+        }
+        return sb.toString();
     }
 
     /**

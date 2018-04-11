@@ -208,7 +208,7 @@ public class ArticleCandidates {
 
                 StringBuffer sb = new StringBuffer();
                 TDoubleArrayList entity_candidate_abs_w2v_avg = avg_w2v.get(entity_candidate);
-                Set<String> entity_cats_candidate = entity_cats.get(entity);
+                Set<String> entity_cats_candidate = entity_cats.get(entity_candidate);
 
                 //create for each of these pairs the features
                 boolean label = gt_entities.containsKey(entity) && gt_entities.get(entity).contains(entity_candidate);

@@ -1,5 +1,6 @@
 package test;
 
+import evaluation.BaselineCandidatePairStrategies;
 import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.map.hash.TIntDoubleHashMap;
 import io.FileUtils;
@@ -151,19 +152,8 @@ public class Test {
             }
 
             //output the data
-            StringBuffer sb = new StringBuffer();
-            for (double score : cumm_entities.keySet()) {
-                int candidate_total = cumm_entities.get(score).getKey();
-                int overlapping = cumm_entities.get(score).getValue();
-
-                int additional = candidate_total - overlapping;
-                double aligned_ratio = gt_total == 0 ? 0.0 : (double) overlapping / gt_total;
-                double unaligned_ratio = (double) (candidate_total - overlapping) / candidate_total;
-                sb.append(entity).append("\t").append(gt_total).append("\t").append(score).append("\t").append(candidate_total).
-                        append("\t").append(overlapping).append("\t").append(additional).append("\t").append(aligned_ratio).
-                        append("\t").append(unaligned_ratio).append("\n");
-            }
-            FileUtils.saveText(sb.toString(), outfile, true);
+            String coverage_stats = BaselineCandidatePairStrategies.writeCoverageStats(cumm_entities, gt_total, entity);
+            FileUtils.saveText(coverage_stats, outfile, true);
         }
     }
 
