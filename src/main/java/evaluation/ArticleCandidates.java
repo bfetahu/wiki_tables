@@ -216,9 +216,12 @@ public class ArticleCandidates {
                 //add all the category representation similarities
                 double[] cat_rep_sim = computeCategorySim(entity_cats_a, entity_cats_candidate);
                 boolean same_cats = entity_cats_a.equals(entity_cats_candidate);
-                Set<String> cats_common = new HashSet<>(entity_cats_a);
-                cats_common.retainAll(entity_cats_candidate);
-                int common_cats = cats_common.size();
+                int common_cats = 0;
+                if (entity_cats_a != null && entity_cats_candidate != null) {
+                    Set<String> cats_common = new HashSet<>(entity_cats_a);
+                    cats_common.retainAll(entity_cats_candidate);
+                    common_cats = cats_common.size();
+                }
                 double score = DataUtils.computeCosine(tfidfscores.get(entity), tfidfscores.get(entity_candidate));
                 double[] firstwords_sim = computeFirstWordsSentenceSimilarity(entity, entity_candidate);
 
@@ -273,6 +276,9 @@ public class ArticleCandidates {
      */
     public double[] computeCategorySim(Set<String> cats_a, Set<String> cats_b) {
         List<Double> scores = new ArrayList<>();
+        if (cats_a == null || cats_b == null) {
+            return new double[3];
+        }
         for (String cat_a : cats_a) {
             int cat_a_hash = cat_a.hashCode();
             for (String cat_b : cats_b) {
