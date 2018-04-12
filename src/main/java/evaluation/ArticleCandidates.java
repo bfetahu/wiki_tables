@@ -10,7 +10,9 @@ import utils.DataUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.text.DecimalFormat;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -41,7 +43,7 @@ public class ArticleCandidates {
 
     //keep the entity abstracts
     public static Map<String, String> entity_abstracts = new HashMap<>();
-    public static Map<String, TIntDoubleHashMap> tfidfscores = new HashMap<>();
+    public static Map<String, Map<String, Double>> tfidfscores = new HashMap<>();
     public static Map<String, Set<String>> first_words = new HashMap<>();
 
     //keep the cat similarities
@@ -73,10 +75,10 @@ public class ArticleCandidates {
                 node2vec = DataUtils.loadWord2Vec(args[++i]);
             } else if (args[i].equals("-finished_gt_seeds")) {
                 finished_gt_seeds = FileUtils.readIntoSet(args[++i], "\n", false);
-                System.out.println("Finished so far: " + finished_gt_seeds.toString());
             } else if (args[i].equals("-abstracts")) {
                 entity_abstracts = DataUtils.loadEntityAbstracts(args[++i]);
-                tfidfscores = DataUtils.computeTFIDF(entity_abstracts);
+            } else if (args[i].equals("-tfidf")) {
+                tfidfscores = DataUtils.loadEntityTFIDFSim(args[++i]);
             } else if (args[i].equals("-cat_sim")) {
                 cat_sim = DataUtils.loadCategoryRepSim(args[++i]);
             } else if (args[i].equals("-option")) {
@@ -116,6 +118,7 @@ public class ArticleCandidates {
         String line;
 
         StringBuffer sb = new StringBuffer();
+        DecimalFormat df = new DecimalFormat("#.0");
         String out_file = out_dir + "/entity_" + filter_tag + "_features_" + sim_threshold + ".tsv";
         int line_counter = 0;
         int total = 0, true_total = 0;
@@ -129,7 +132,7 @@ public class ArticleCandidates {
             }
 
             //we filter by the embedding similarity between the entity pair. the similarity is in the 8th column
-            double sim = Double.parseDouble(data[filter_index]);
+            double sim = Double.parseDouble(df.format(Double.parseDouble(data[filter_index])));
             if (sim >= sim_threshold) {
                 sb.append(line).append("\n");
                 total++;
@@ -159,6 +162,7 @@ public class ArticleCandidates {
         StringBuffer header = new StringBuffer();
         header.append("entity_a\tentity_b\tmin_cat_rep_sim\tmax_cat_rep_sim\tmean_cat_rep_sim\t");
         header.append("same_cats\toverlap_cats_no\tentity_tfidf_sim\tjacc_firstwords_sim\tw2v_firstwords_sim\t");
+        header.append("title_jacc_sim\ttitle_overlap_sim_a\ttitle_overlap_sim_b\t");
         header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\t");
         header.append("mean_distance_col\tmin_col_w2v_sim\tmax_col_w2v_sim\tmean_col_w2v_sim\t");
         header.append("cat_n2v_min_sim\tcat_n2v_max_sim\tcat_n2v_mean_sim\te_n2v_ec\tavg_n2v_cat_sim\tabs_sim\tlabel\n");
@@ -171,22 +175,8 @@ public class ArticleCandidates {
         Map<String, TDoubleArrayList> avg_cat_n2v = new HashMap<>();
         filter_entities.stream().forEach(entity -> avg_cat_n2v.put(entity, DataUtils.computeGraphAverageEmbedding(entity_cats.get(entity), node2vec)));
 
-        filter_entities.stream().forEach(entity -> {
-            if (entity_abstracts.containsKey(entity)) {
-                String[] words = entity_abstracts.get(entity).toLowerCase().split("\\s+");
-                Set<String> words_set = new HashSet<>();
-                for (String word : words) {
-                    if (stop_words.contains(word)) {
-                        continue;
-                    }
-                    if (words_set.size() > 10) {
-                        break;
-                    }
-                    words_set.add(word);
-                }
-                first_words.put(entity, words_set);
-            }
-        });
+        loadFirsWordsMaps();
+
         //filter the filter entities to only those that contain tables.
         filter_entities = filter_entities.stream().filter(e -> tables.containsKey(e)).collect(Collectors.toSet());
         for (String entity : seed_entities) {
@@ -201,8 +191,8 @@ public class ArticleCandidates {
 
             TDoubleArrayList entity_emb = node2vec.get(entity.replaceAll(" ", "_"));
 
+            long time = System.nanoTime();
             filter_entities.parallelStream().forEach(entity_candidate -> {
-                long time = System.nanoTime();
                 TDoubleArrayList entity_candidate_emb = node2vec.get(entity_candidate.replaceAll(" ", "_"));
 
                 StringBuffer sb = new StringBuffer();
@@ -221,8 +211,14 @@ public class ArticleCandidates {
                     cats_common.retainAll(entity_cats_candidate);
                     common_cats = cats_common.size();
                 }
-                double score = DataUtils.computeCosine(tfidfscores.get(entity), tfidfscores.get(entity_candidate));
+
+                //compute the abstract and the first 10 word similarity between entities.
+                double score = tfidfscores.containsKey(entity) && tfidfscores.get(entity).containsKey(entity_candidate) ? tfidfscores.get(entity).get(entity_candidate) : 0.0;
                 double[] firstwords_sim = computeFirstWordsSentenceSimilarity(entity, entity_candidate);
+
+
+                //compute the title similarities
+                double[] entity_title_sim = computeEntityTitleSim(entity, entity_candidate);
 
                 //add all the table column similarities
                 double[] tbl_sim = computeTableFeatures(entity, entity_candidate);
@@ -232,23 +228,20 @@ public class ArticleCandidates {
                 double e_n2v_ec = DataUtils.computeCosineSim(entity_emb, entity_candidate_emb);
                 double avg_cat_n2v_sim = DataUtils.computeCosineSim(avg_cat_n2v.get(entity), avg_cat_n2v.get(entity_candidate));
 
+                //compute the w2v sim between the entity abstracts
+                double abs_sim = DataUtils.computeCosineSim(entity_abs_w2v_avg, entity_candidate_abs_w2v_avg);
+
                 //add the features.
                 sb.append(entity).append("\t").append(entity_candidate).append("\t");
-
                 IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
                 sb.append(same_cats).append("\t").append(common_cats).append("\t").append(score).append("\t").append(firstwords_sim[0]).append("\t").append(firstwords_sim[1]).append("\t");
-
+                IntStream.range(0, entity_title_sim.length).forEach(i -> sb.append(entity_title_sim[i]).append("\t"));
                 IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
                 IntStream.range(0, cat_emb_sim.length).forEach(i -> sb.append(cat_emb_sim[i]).append("\t"));
                 sb.append(e_n2v_ec).append("\t").append(avg_cat_n2v_sim).append("\t");
-
-                //compute the w2v sim between the entity abstracts
-                double abs_sim = DataUtils.computeCosineSim(entity_abs_w2v_avg, entity_candidate_abs_w2v_avg);
                 sb.append(abs_sim).append("\t").append(label).append("\n");
-                concurrent_fl.add(sb.toString());
 
-                time = System.nanoTime() - time;
-                System.out.printf("Finished processing entity pair %s and %s\n", entity, entity_candidate);
+                concurrent_fl.add(sb.toString());
             });
 
             StringBuffer sb = new StringBuffer();
@@ -259,8 +252,9 @@ public class ArticleCandidates {
                     sb.delete(0, sb.length());
                 }
             }
+            time = System.nanoTime() - time;
             FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
-            System.out.printf("Finished processing features for entity %s.\n", entity);
+            System.out.printf("Finished processing features for entity %s %d mins.\n", entity, TimeUnit.NANOSECONDS.convert(time, TimeUnit.MINUTES));
 
             FileUtils.saveText(entity + "\n", "finished_entities.tsv", true);
         }
@@ -491,6 +485,53 @@ public class ArticleCandidates {
         TDoubleArrayList w2v_b = DataUtils.computeAverageWordVector(first_words_b, word2vec);
         double cosine_sim = DataUtils.computeCosineSim(w2v_a, w2v_b);
         return new double[]{jacc_sim, cosine_sim};
+    }
+
+
+    /**
+     * Load the first 10 words from each entity abstract.
+     */
+    public static void loadFirsWordsMaps() {
+        filter_entities.stream().forEach(entity -> {
+            if (entity_abstracts.containsKey(entity)) {
+                String[] words = entity_abstracts.get(entity).toLowerCase().split("\\s+");
+                Set<String> words_set = new HashSet<>();
+                for (String word : words) {
+                    if (stop_words.contains(word)) {
+                        continue;
+                    }
+                    if (words_set.size() > 10) {
+                        break;
+                    }
+                    words_set.add(word);
+                }
+                first_words.put(entity, words_set);
+            }
+        });
+    }
+
+
+    /**
+     * Compute the similarity between the entity titles and the occurrence of title tokens in the abstract.
+     *
+     * @param entity_a
+     * @param entity_b
+     * @return
+     */
+    public static double[] computeEntityTitleSim(String entity_a, String entity_b) {
+        String abstract_a = entity_abstracts.containsKey(entity_a) ? entity_abstracts.get(entity_a) : "";
+        String abstract_b = entity_abstracts.containsKey(entity_b) ? entity_abstracts.get(entity_b) : "";
+
+        //generate the sets from the titles
+        Set<String> entity_a_tokens = new HashSet<>(Arrays.asList(entity_a.toLowerCase().split("\\s+")));
+        Set<String> entity_b_tokens = new HashSet<>(Arrays.asList(entity_b.toLowerCase().split("\\s+")));
+
+        double title_sim_jacc = DataUtils.computeJaccardSimilarity(entity_a_tokens, entity_b_tokens);
+
+        double title_abs_a_overlap = entity_a_tokens.stream().mapToDouble(k -> abstract_b.contains(k) ? 1 : 0).sum() / entity_a_tokens.size();
+        double title_abs_b_overlap = entity_b_tokens.stream().mapToDouble(k -> abstract_a.contains(k) ? 1 : 0).sum() / entity_b_tokens.size();
+
+        return new double[]{title_sim_jacc, title_abs_a_overlap, title_abs_b_overlap};
     }
 
 

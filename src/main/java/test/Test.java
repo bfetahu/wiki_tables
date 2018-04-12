@@ -16,16 +16,20 @@ import java.util.*;
  */
 public class Test {
     public static void main(String[] args) throws Exception {
+        Map<String, TDoubleArrayList> node2vec = DataUtils.loadWord2Vec(args[0]);
+        Set<String> seeds = FileUtils.readIntoSet(args[1], "\n", false);
+        Set<String> filter = FileUtils.readIntoSet(args[2], "\n", false);
 
-//        computeSentenceSimSimple(args);
-        System.exit(0);
+        StringBuffer sb = new StringBuffer();
+        DecimalFormat df = new DecimalFormat("#.0");
+        for (String entity_a : seeds) {
+            TDoubleArrayList emb_a = node2vec.get(entity_a.replaceAll(" ", "_"));
+            for (String entity_b : filter) {
+                TDoubleArrayList emb_b = node2vec.get(entity_b.replaceAll(" ", "_"));
+                double score = Double.parseDouble(df.format(DataUtils.computeCosineSim(emb_a, emb_b)));
+            }
+        }
 
-        String file = args[0];
-        String outfile = args[1];
-        Map<String, Set<String>> gt = FileUtils.readMapSet(args[2], "\t");
-        int field = Integer.parseInt(args[3]);
-
-        computeCoverage(file, outfile, gt, field);
     }
 
     public static void computeSentenceSimSimple(String[] args) throws IOException {

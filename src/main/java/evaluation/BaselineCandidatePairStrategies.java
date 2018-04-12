@@ -173,9 +173,6 @@ public class BaselineCandidatePairStrategies {
 
             //group the entities based on the existing thresholds.
             Map<Double, TIntHashSet> entities = new TreeMap<>();
-            TIntHashSet gt_idx = new TIntHashSet();
-            gt_entities.forEach(e -> gt_idx.add(entity_idx.get(e)));
-
             for (double score : candidates.keySet()) {
                 if (!isEntity) {
                     Set<String> sub_entities = new HashSet<>();
@@ -195,9 +192,12 @@ public class BaselineCandidatePairStrategies {
 
             Map<Double, Map.Entry<Integer, Integer>> cumm_entities = new TreeMap<>();
             for (double score : candidates.keySet()) {
+                TIntHashSet gt_idx = new TIntHashSet();
+                gt_entities.forEach(e -> gt_idx.add(entity_idx.get(e)));
+
                 TIntHashSet cumm = new TIntHashSet(entities.get(score));
                 candidates.keySet().stream().filter(score_cmp -> score_cmp >= score).forEach(score_cmp -> cumm.addAll(entities.get(score_cmp)));
-                cumm.retainAll(gt_idx);
+                gt_idx.retainAll(cumm);
                 cumm_entities.put(score, new AbstractMap.SimpleEntry<>(cumm.size(), gt_idx.size()));
             }
 

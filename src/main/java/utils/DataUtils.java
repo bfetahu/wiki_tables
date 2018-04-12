@@ -289,7 +289,7 @@ public class DataUtils {
     public static double computeEuclideanDistance(TIntDoubleHashMap weights_a, TIntDoubleHashMap weights_b) {
         double result = 0.0;
         if (weights_a.isEmpty() || weights_b.isEmpty()) {
-            return Double.MAX_VALUE;
+            return -1;
         }
 
         TIntHashSet all_keys = new TIntHashSet(weights_a.keySet());
@@ -874,6 +874,9 @@ public class DataUtils {
      * @return
      */
     public static Map<String, TIntDoubleHashMap> computeTFIDF(Map<String, String> ea) {
+        if (FileUtils.fileExists("entity_tfidf_sim_coverage.tsv", false)) {
+
+        }
         TIntObjectHashMap<TIntHashSet> idf = new TIntObjectHashMap<>();
         TIntObjectHashMap<TIntIntHashMap> tf = new TIntObjectHashMap<>();
 
@@ -919,6 +922,32 @@ public class DataUtils {
             }
         }
         return tfidf_scores;
+    }
+
+    /**
+     * Load the pre-computed similarity scores.
+     *
+     * @param file
+     * @return
+     * @throws IOException
+     */
+    public static Map<String, Map<String, Double>> loadEntityTFIDFSim(String file) throws IOException {
+        BufferedReader reader = FileUtils.getFileReader(file);
+        String line;
+
+        Map<String, Map<String, Double>> sim = new HashMap<>();
+        while ((line = reader.readLine()) != null) {
+            String[] data = line.split("\t");
+            String entity_a = data[0];
+            String entity_b = data[2];
+            double score = Double.parseDouble(data[3]);
+
+            if (!sim.containsKey(entity_a)) {
+                sim.put(entity_a, new HashMap<>());
+            }
+            sim.get(entity_a).put(entity_b, score);
+        }
+        return sim;
     }
 
     /**
