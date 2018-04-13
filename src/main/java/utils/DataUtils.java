@@ -404,6 +404,37 @@ public class DataUtils {
         return ancestors;
     }
 
+    /**
+     * Find the lowest common ancestor for the two categories under consideration.
+     *
+     * @param parents_a
+     * @param parents_b
+     * @param cat_to_map
+     * @return
+     */
+    public static Set<CategoryRepresentation> findCommonAncestor(Set<String> parents_a, Set<String> parents_b, Map<String, CategoryRepresentation> cat_to_map) {
+        Set<CategoryRepresentation> ancestors = new HashSet<>();
+
+        Set<String> common_parents = new HashSet<>(parents_a);
+        //take the intersection of the two parent sets.
+        common_parents.retainAll(parents_b);
+        common_parents.remove("root");
+
+        if (parents_a.isEmpty()) {
+            return null;
+        }
+
+        int max_level = parents_a.stream().mapToInt(parent -> cat_to_map.get(parent).level).max().getAsInt();
+
+        for (String parent : parents_a) {
+            CategoryRepresentation cat = cat_to_map.get(parent);
+            if (cat.level == max_level) {
+                ancestors.add(cat);
+            }
+        }
+
+        return ancestors;
+    }
 
     /**
      * Gather all the parents of category up to the root of the category.
@@ -511,6 +542,65 @@ public class DataUtils {
                     lca_cats.get(cat_a_label).put(cat_b_label, lca);
                 }
                 return lca;
+            }
+        }
+
+        return null;
+    }
+
+
+    /**
+     * Find the lowest common ancestors between two category sets which we have extracted from an entity.
+     *
+     * @param article_a_cats
+     * @param article_b_cats
+     * @param cat_to_map
+     * @return
+     */
+    public static Set<String> findLCACategories(Set<String> article_a_cats, Set<String> article_b_cats,
+                                                Map<String, Set<String>> parent_cats,
+                                                Map<String, CategoryRepresentation> cat_to_map) {
+        //check first if they come from the same categories.
+        if (article_a_cats == null || article_b_cats == null || article_b_cats.isEmpty() || article_a_cats.isEmpty()) {
+            //return null in this case, indicating that the articles belong to exactly the same categories
+            return null;
+        }
+        if (article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).count() == 0 || article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).count() == 0) {
+            return null;
+        }
+        boolean same_cats = article_a_cats.equals(article_b_cats);
+
+        int max_level_a = article_a_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
+        int max_level_b = article_b_cats.stream().filter(c -> cat_to_map.containsKey(c)).mapToInt(c -> cat_to_map.get(c).level).max().getAsInt();
+
+        /*
+             Else, we first find the lowest common ancestor between the categories of the two articles.
+             Additionally, we will do this only for the categories being in the deepest category hierarchy graph,
+             this allows us to avoid the match between very broad categories, and thus, we generate more
+             meaningful similarity matches.
+         */
+        if (same_cats) {
+            return article_a_cats;
+        }
+
+        for (String cat_a_label : article_a_cats) {
+            CategoryRepresentation cat_a = cat_to_map.get(cat_a_label);
+            if (cat_a == null || cat_a.level < max_level_a || !parent_cats.containsKey(cat_a_label)) {
+                continue;
+            }
+
+            for (String cat_b_label : article_b_cats) {
+                CategoryRepresentation cat_b = cat_to_map.get(cat_b_label);
+                if (cat_b == null || cat_b.level < max_level_b || !parent_cats.containsKey(cat_b_label)) {
+                    continue;
+                }
+
+                //get the lowest common ancestors between the two categories
+                Set<CategoryRepresentation> common_ancestors = DataUtils.findCommonAncestor(parent_cats.get(cat_a_label), parent_cats.get(cat_b_label), cat_to_map);
+                if (common_ancestors == null || common_ancestors.isEmpty()) {
+                    continue;
+                }
+                return common_ancestors.stream().map(x -> x.label).collect(Collectors.toSet());
             }
         }
 

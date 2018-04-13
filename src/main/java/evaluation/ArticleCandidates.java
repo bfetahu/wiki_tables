@@ -6,13 +6,13 @@ import gnu.trove.list.array.TDoubleArrayList;
 import gnu.trove.map.hash.TIntDoubleHashMap;
 import gnu.trove.map.hash.TIntObjectHashMap;
 import io.FileUtils;
+import representation.CategoryRepresentation;
 import utils.DataUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -30,6 +30,7 @@ public class ArticleCandidates {
 
     //the entity categories
     public static Map<String, Set<String>> entity_cats = new HashMap<>();
+    public static Map<String, Set<String>> cats_entities = new HashMap<>();
 
     //load the word  and graph embeddings.
     public static Map<String, TDoubleArrayList> word2vec;
@@ -52,6 +53,11 @@ public class ArticleCandidates {
     //load the list of stop words
     public static Set<String> stop_words;
 
+    //load the category representation object
+    public static CategoryRepresentation cat;
+    public static Map<String, CategoryRepresentation> cat_map;
+    public static Map<String, Set<String>> cat_parents;
+
     public static void main(String[] args) throws IOException, InterruptedException {
         String out_dir = "", table_data = "", option = "", feature_file = "", filter_tag = "";
         double sim_threshold = 0.0;
@@ -60,7 +66,9 @@ public class ArticleCandidates {
             if (args[i].equals("-out_dir")) {
                 out_dir = args[++i];
             } else if (args[i].equals("-article_categories")) {
-                entity_cats = DataUtils.readEntityCategoryMappingsWiki(args[++i], null);
+                String article_cats = args[++i];
+                entity_cats = DataUtils.readEntityCategoryMappingsWiki(article_cats, null);
+                cats_entities = DataUtils.readCategoryMappingsWiki(article_cats, null);
             } else if (args[i].equals("-seed_entities")) {
                 seed_entities = FileUtils.readIntoSet(args[++i], "\n", false);
             } else if (args[i].equals("-filter_entities")) {
@@ -93,6 +101,17 @@ public class ArticleCandidates {
                 filter_index = Integer.parseInt(args[++i]);
             } else if (args[i].equals("-filter_tag")) {
                 filter_tag = args[++i];
+            } else if (args[i].equals("-cat_rep")) {
+                cat = CategoryRepresentation.readCategoryGraph(args[++i]);
+                cat_map = new HashMap<>();
+                cat.loadIntoMapChildCats(cat_map);
+
+                //load the parents of each category
+                cat_parents = new HashMap<>();
+                cat_map.keySet().forEach(cat -> cat_parents.put(cat, new HashSet<>()));
+                cat_map.keySet().parallelStream().forEach(cat -> DataUtils.gatherParents(cat_map.get(cat), cat_parents.get(cat)));
+
+                System.out.println("Loaded the category representation object and constructed the parent paths for each category");
             }
         }
         ArticleCandidates ac = new ArticleCandidates();
@@ -161,6 +180,8 @@ public class ArticleCandidates {
     public void scoreTableCandidatesApproach(String out_dir) throws IOException {
         StringBuffer header = new StringBuffer();
         header.append("entity_a\tentity_b\tmin_cat_rep_sim\tmax_cat_rep_sim\tmean_cat_rep_sim\t");
+        header.append("cat_entity_overlap\tmin_cat_level_diff\tmax_cat_level_diff\tmean_cat_level_diff\t");
+        header.append("cat_a_parent_level_diff\tcat_b_parent_level_diff\tcat_a_parent_entity_overlap\tcat_b_parent_entity_overlap\t");
         header.append("same_cats\toverlap_cats_no\tentity_tfidf_sim\tjacc_firstwords_sim\tw2v_firstwords_sim\t");
         header.append("title_jacc_sim\ttitle_overlap_sim_a\ttitle_overlap_sim_b\t");
         header.append("section_w2v_sim\tmin_distance_col\tmax_distance_col\t");
@@ -204,6 +225,8 @@ public class ArticleCandidates {
 
                 //add all the category representation similarities
                 double[] cat_rep_sim = computeCategorySim(entity_cats_a, entity_cats_candidate);
+                double[] lca_cat_sim = computeLCACats(entity_cats_a, entity_cats_candidate);
+
                 boolean same_cats = entity_cats_a.equals(entity_cats_candidate);
                 int common_cats = 0;
                 if (entity_cats_a != null && entity_cats_candidate != null) {
@@ -215,7 +238,6 @@ public class ArticleCandidates {
                 //compute the abstract and the first 10 word similarity between entities.
                 double score = tfidfscores.containsKey(entity) && tfidfscores.get(entity).containsKey(entity_candidate) ? tfidfscores.get(entity).get(entity_candidate) : 0.0;
                 double[] firstwords_sim = computeFirstWordsSentenceSimilarity(entity, entity_candidate);
-
 
                 //compute the title similarities
                 double[] entity_title_sim = computeEntityTitleSim(entity, entity_candidate);
@@ -234,6 +256,7 @@ public class ArticleCandidates {
                 //add the features.
                 sb.append(entity).append("\t").append(entity_candidate).append("\t");
                 IntStream.range(0, cat_rep_sim.length).forEach(i -> sb.append(cat_rep_sim[i]).append("\t"));
+                IntStream.range(0, lca_cat_sim.length).forEach(i -> sb.append(lca_cat_sim[i]).append("\t"));
                 sb.append(same_cats).append("\t").append(common_cats).append("\t").append(score).append("\t").append(firstwords_sim[0]).append("\t").append(firstwords_sim[1]).append("\t");
                 IntStream.range(0, entity_title_sim.length).forEach(i -> sb.append(entity_title_sim[i]).append("\t"));
                 IntStream.range(0, tbl_sim.length).forEach(i -> sb.append(tbl_sim[i]).append("\t"));
@@ -254,7 +277,7 @@ public class ArticleCandidates {
             }
             time = System.nanoTime() - time;
             FileUtils.saveText(sb.toString(), out_dir + "/candidate_features.tsv", true);
-            System.out.printf("Finished processing features for entity %s %d mins.\n", entity, TimeUnit.NANOSECONDS.convert(time, TimeUnit.MINUTES));
+            System.out.printf("Finished processing features for entity %s.\n", entity);
 
             FileUtils.saveText(entity + "\n", "finished_entities.tsv", true);
         }
@@ -269,28 +292,114 @@ public class ArticleCandidates {
      */
     public double[] computeCategorySim(Set<String> cats_a, Set<String> cats_b) {
         List<Double> scores = new ArrayList<>();
+        List<Integer> level_diff = new ArrayList<>();
+
         if (cats_a == null || cats_b == null) {
-            return new double[3];
+            return new double[]{-1, -1, -1, 0.0, -1, -1, -1};
         }
+
+        Set<String> entities_a = new HashSet<>();
+        Set<String> entities_b = new HashSet<>();
         for (String cat_a : cats_a) {
+            if (cats_entities.containsKey(cat_a)) {
+                entities_a.addAll(cats_entities.get(cat_a));
+            }
+
             int cat_a_hash = cat_a.hashCode();
             for (String cat_b : cats_b) {
+                if (cats_entities.containsKey(cat_b)) {
+                    entities_b.addAll(cats_entities.get(cat_b));
+                }
                 int cat_b_hash = cat_b.hashCode();
 
                 if (cat_sim.containsKey(cat_a_hash) && cat_sim.get(cat_a_hash).containsKey(cat_b_hash)) {
                     double score = cat_sim.get(cat_a_hash).get(cat_b_hash);
                     scores.add(score);
                 }
+                if (cat_map.containsKey(cat_a) && cat_map.containsKey(cat_b)) {
+                    level_diff.add(Math.abs(cat_map.get(cat_a).level - cat_map.get(cat_b).level));
+                }
             }
         }
-        if (scores.isEmpty()) {
-            return new double[]{-1, -1, -1};
+
+        double entity_overlap = DataUtils.computeJaccardSimilarity(entities_a, entities_b);
+        double[] results = new double[7];
+        if (!scores.isEmpty()) {
+            results[0] = scores.stream().mapToDouble(x -> x).min().getAsDouble();
+            results[1] = scores.stream().mapToDouble(x -> x).max().getAsDouble();
+            results[2] = scores.stream().mapToDouble(x -> x).average().getAsDouble();
+        }
+        results[3] = entity_overlap;
+        if (!level_diff.isEmpty()) {
+            results[4] = level_diff.stream().mapToDouble(x -> x).min().getAsDouble();
+            results[5] = level_diff.stream().mapToDouble(x -> x).max().getAsDouble();
+            results[6] = level_diff.stream().mapToDouble(x -> x).average().getAsDouble();
+        }
+        return results;
+    }
+
+    /**
+     * Checks the difference in terms of categories directly associated to the pair of entities and their
+     * corresponding LCA categories. We measure their difference in terms of levels and additionally
+     * their entity overlap.
+     *
+     * @param cats_a
+     * @param cats_b
+     * @return
+     */
+    public static double[] computeLCACats(Set<String> cats_a, Set<String> cats_b) {
+        Set<String> lca_cats = DataUtils.findLCACategories(cats_a, cats_b, cat_parents, cat_map);
+        if (lca_cats == null || lca_cats.isEmpty()) {
+            return new double[]{100, 100, 0.0, 0.0};
         }
 
-        double min = scores.stream().mapToDouble(x -> x).min().getAsDouble();
-        double max = scores.stream().mapToDouble(x -> x).max().getAsDouble();
-        double mean = scores.stream().mapToDouble(x -> x).average().getAsDouble();
-        return new double[]{min, max, mean};
+        int min_diff_a = 100, min_diff_b = 100;
+        String cat_min_diff_a = "", cat_min_diff_b = "", lca_cat_min_a = "", lca_cat_min_b = "";
+        for (String lca_cat : lca_cats) {
+            if (!cat_map.containsKey(lca_cat)) {
+                continue;
+            }
+            int lca_level = cat_map.get(lca_cat).level;
+
+            for (String cat_a : cats_a) {
+                if (!cat_map.containsKey(cat_a)) {
+                    continue;
+                }
+                int cat_a_level = cat_map.get(cat_a).level;
+                int tmp_diff_a = Math.abs(cat_a_level - lca_level);
+
+                if (tmp_diff_a < min_diff_a) {
+                    min_diff_a = tmp_diff_a;
+                    cat_min_diff_a = cat_a;
+                    lca_cat_min_a = lca_cat;
+                }
+            }
+            for (String cat_b : cats_b) {
+                if (!cat_map.containsKey(cat_b)) {
+                    continue;
+                }
+                int cat_b_level = cat_map.get(cat_b).level;
+                int tmp_diff_b = Math.abs(cat_b_level - lca_level);
+
+                if (tmp_diff_b < min_diff_b) {
+                    min_diff_b = tmp_diff_b;
+                    cat_min_diff_b = cat_b;
+                    lca_cat_min_b = lca_cat;
+                }
+            }
+        }
+
+        //compute the entity overlap
+        double overlap_a = DataUtils.computeJaccardSimilarity(cats_entities.get(lca_cat_min_a), cats_entities.get(cat_min_diff_a));
+        double overlap_b = DataUtils.computeJaccardSimilarity(cats_entities.get(lca_cat_min_b), cats_entities.get(cat_min_diff_b));
+
+        double[] result = new double[4];
+        result[0] = min_diff_a;
+        result[1] = min_diff_b;
+        result[2] = overlap_a;
+        result[3] = overlap_b;
+
+        return result;
     }
 
     /**
