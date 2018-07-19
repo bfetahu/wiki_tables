@@ -5,112 +5,16 @@ import io.FileUtils;
 import representation.CategoryRepresentation;
 import utils.DataUtils;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.util.*;
+import java.util.Map;
 
 /**
  * Created by besnik on 3/4/18.
  */
 public class CatRepSim {
     public static void main(String[] args) throws IOException {
-        String category_path = args[0];
-        String out_dir = args[1];
-        CategoryRepresentation cat = (CategoryRepresentation) FileUtils.readObject(category_path);
 
-        Map<String, CategoryRepresentation> cat_to_map = new HashMap<>();
-        cat.loadIntoMapChildCats(cat_to_map);
-
-        Map<String, Double> attribute_max_level_category = DataUtils.computeMaxLevelAttributeCategory(cat_to_map);
-        Map<String, TIntDoubleHashMap> cat_weights = DataUtils.computeCategoryAttributeWeights(attribute_max_level_category, cat_to_map);
-
-        //compute the similarity between categories under the same parent and categories against their parents.
-        String outfile = out_dir + "/category_rep_sim.tsv";
-        computeCategorySimilarity(cat, cat_weights, outfile);
     }
-
-    public static void testCatSim(String file, String cat_level) throws IOException {
-        Map<String, Integer> catl = loadCatLevel(cat_level);
-
-        Set<String> cats = new HashSet<>();
-        cats.add("Wars involving Austria");
-        cats.add("Social networks");
-        cats.add("Peer-to-peer");
-        cats.add("LGBT social networking services");
-        cats.add("root");
-
-        Map<String, Map<String, Map.Entry<Integer, Integer>>> cat_rep = new HashMap<>();
-        Map<String, Integer> prop_level = new HashMap<>();
-        BufferedReader reader = FileUtils.getFileReader(file);
-        String line;
-        while ((line = reader.readLine()) != null) {
-            String[] data = line.split("\t");
-
-            String cat = data[0];
-            int level = catl.containsKey(cat) ? catl.get(cat) : 1;
-            for (int i = 3; i < data.length; i++) {
-                String prop = data[i];
-                prop = prop.substring(0, prop.indexOf("="));
-
-                if (!prop_level.containsKey(prop)) {
-                    prop_level.put(prop, level);
-                } else if (prop_level.get(prop) < level) {
-                    prop_level.put(prop, level);
-                }
-            }
-
-            if (cats.contains(cat)) {
-                Map<String, Map.Entry<Integer, Integer>> catprops = new HashMap<>();
-                for (int i = 3; i < data.length; i++) {
-                    String prop = data[i];
-                    prop = prop.substring(0, prop.indexOf("="));
-
-                    int numval = Integer.parseInt(data[i].substring(data[i].indexOf("=") + 1, data[i].indexOf(";")));
-                    int numassign = Integer.parseInt(data[i].substring(data[i].indexOf(";") + 1));
-
-                    catprops.put(prop, new AbstractMap.SimpleEntry<>(numval, numassign));
-                }
-                cat_rep.put(cat, catprops);
-            }
-        }
-
-        Map<String, TIntDoubleHashMap> weights = new HashMap<>();
-        for (String category : cat_rep.keySet()) {
-            TIntDoubleHashMap catweight = new TIntDoubleHashMap();
-
-            for (String prop : cat_rep.get(category).keySet()) {
-                double weight = (double)catl.get(category) / prop_level.get(prop) * cat_rep.get(category).get(prop).getKey() / (double) cat_rep.get(category).get(prop).getValue();
-                catweight.put(prop.hashCode(), weight);
-            }
-            weights.put(category, catweight);
-        }
-
-        Set<String> keys = weights.keySet();
-        for (String a : keys) {
-            for (String b : keys) {
-                double score = DataUtils.computeEuclideanDistance(weights.get(a), weights.get(b));
-                System.out.printf("%finished_gt_seeds\t%finished_gt_seeds\t%.2f\n", a, b, score);
-            }
-        }
-    }
-
-    private static Map<String, Integer> loadCatLevel(String file) throws IOException {
-        Map<String, Integer> l = new HashMap<>();
-        BufferedReader reader = FileUtils.getFileReader(file);
-        String line;
-        while ((line = reader.readLine()) != null) {
-            String[] data = line.split("\t");
-
-            String cat = line.trim();
-            cat = cat.substring(0, cat.indexOf("="));
-            int level = data.length;
-
-            l.put(cat, level);
-        }
-
-        return l;
-    }
-
 
     /**
      * Compute the category similarity between categories and their parents, and categories under the same parent.

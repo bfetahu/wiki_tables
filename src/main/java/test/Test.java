@@ -1,196 +1,107 @@
 package test;
 
-import evaluation.BaselineCandidatePairStrategies;
-import gnu.trove.list.array.TDoubleArrayList;
-import gnu.trove.map.hash.TIntDoubleHashMap;
 import io.FileUtils;
-import utils.DataUtils;
+import org.apache.commons.text.similarity.LevenshteinDistance;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.text.DecimalFormat;
-import java.util.*;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Created by besnik on 3/12/18.
  */
 public class Test {
     public static void main(String[] args) throws Exception {
-        Map<String, TDoubleArrayList> node2vec = DataUtils.loadWord2Vec(args[0]);
-        Set<String> seeds = FileUtils.readIntoSet(args[1], "\n", false);
-        Set<String> filter = FileUtils.readIntoSet(args[2], "\n", false);
+
+    }
+
+    public static void filterFeatureFiles(String[] args) throws IOException {
+        Set<String> entities = FileUtils.readIntoSet(args[0], "\n", false);
 
         StringBuffer sb = new StringBuffer();
-        DecimalFormat df = new DecimalFormat("#.0");
-        for (String entity_a : seeds) {
-            TDoubleArrayList emb_a = node2vec.get(entity_a.replaceAll(" ", "_"));
-            for (String entity_b : filter) {
-                TDoubleArrayList emb_b = node2vec.get(entity_b.replaceAll(" ", "_"));
-                double score = Double.parseDouble(df.format(DataUtils.computeCosineSim(emb_a, emb_b)));
-            }
-        }
-
-    }
-
-    public static void computeSentenceSimSimple(String[] args) throws IOException {
-        Map<String, String> ea = DataUtils.loadEntityAbstracts(args[0]);
-        Map<String, TIntDoubleHashMap> tfidfscores = DataUtils.computeTFIDF(ea);
-
-        Set<String> seeds = FileUtils.readIntoSet(args[1], "\n", false);
-        Set<String> filter = FileUtils.readIntoSet(args[2], "\n", false);
-        Map<String, Set<String>> gt = FileUtils.readMapSet(args[3], "\t");
-
-        String out_file = args[4];
-        for (String entity : seeds) {
-            if (!ea.containsKey(entity)) {
-                System.out.printf("There is no abstract for entity %s.\n", entity);
-                continue;
-            }
-            List<String> feature_lines = new ArrayList<>();
-            List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
-
-            int gt_total = gt.containsKey(entity) ? gt.get(entity).size() : 0;
-            filter.parallelStream().forEach(entity_candidate -> {
-                if (!ea.containsKey(entity_candidate)) {
-                    System.out.printf("There is no abstract for entity %s.\n", entity_candidate);
-                    return;
-                }
-                double score = DataUtils.computeCosine(tfidfscores.get(entity), tfidfscores.get(entity_candidate));
-                //create for each of these pairs the features
-                boolean label = gt.containsKey(entity) && gt.get(entity).contains(entity_candidate);
-
-                StringBuffer sb = new StringBuffer();
-                sb.append(entity).append("\t").append(gt_total).append("\t").append(entity_candidate).append("\t").append(score).append("\t").append(label).append("\n");
-                concurrent_fl.add(sb.toString());
-            });
-
-            StringBuffer sb = new StringBuffer();
-            concurrent_fl.forEach(s -> sb.append(s));
-            FileUtils.saveText(sb.toString(), out_file, true);
-        }
-    }
-
-
-    public static void computeSentenceSim(String[] args) throws IOException {
-        Map<String, TDoubleArrayList> w2v = DataUtils.loadWord2Vec(args[0]);
-        Map<String, String> ea = DataUtils.loadEntityAbstracts(args[1]);
-
-        Set<String> seeds = FileUtils.readIntoSet(args[2], "\n", false);
-        Set<String> filter = FileUtils.readIntoSet(args[3], "\n", false);
-        Map<String, Set<String>> gt = FileUtils.readMapSet(args[4], "\t");
-
-        Map<String, Map<Integer, TDoubleArrayList>> avg_wsv = new HashMap<>();
-        filter.stream().filter(e -> ea.containsKey(e)).forEach(e -> avg_wsv.put(e, computeAvgSentenceW2V(ea.get(e), w2v)));
-
-        String out_file = "entity_abs_sim.tsv";
-        for (String entity : seeds) {
-            if (!avg_wsv.containsKey(entity)) {
-                System.out.printf("There is no abstract for entity %s.\n", entity);
-                continue;
-            }
-            List<String> feature_lines = new ArrayList<>();
-            List<String> concurrent_fl = Collections.synchronizedList(feature_lines);
-
-            int gt_total = gt.containsKey(entity) ? gt.get(entity).size() : 0;
-            filter.parallelStream().forEach(entity_candidate -> {
-                if (!avg_wsv.containsKey(entity_candidate)) {
-                    System.out.printf("There is no abstract for entity %s.\n", entity_candidate);
-                    return;
-                }
-                Map<Integer, Map.Entry<Integer, Double>> sim = computeSentenceSim(avg_wsv.get(entity), avg_wsv.get(entity_candidate));
-                //create for each of these pairs the features
-                boolean label = gt.containsKey(entity) && gt.get(entity).contains(entity_candidate);
-
-                StringBuffer sb = new StringBuffer();
-                sb.append(entity).append("\t").append(gt_total).append("\t").append(entity_candidate);
-                sim.keySet().stream().filter(k -> k <= 10).forEach(k -> sb.append("\t").append(sim.get(k).getKey()).append("\t").append(sim.get(k).getValue()));
-                sb.append("\t").append(label).append("\n");
-                concurrent_fl.add(sb.toString());
-            });
-
-            StringBuffer sb = new StringBuffer();
-            concurrent_fl.forEach(s -> sb.append(s));
-            FileUtils.saveText(sb.toString(), out_file, true);
-        }
-
-
-    }
-
-    public static void computeCoverage(String file, String outfile, Map<String, Set<String>> gt, int field_index) throws IOException {
-        Map<String, Map<Double, Set<String>>> entities = new HashMap<>();
-        BufferedReader reader = FileUtils.getFileReader(file);
-
-        DecimalFormat df = new DecimalFormat("#.0");
+        BufferedReader reader = FileUtils.getFileReader(args[1]);
         String line;
+        int idx = 0;
         while ((line = reader.readLine()) != null) {
-            String[] tmp = line.split("\t");
-
-            String seed_entity = tmp[0];
-            String candidate = tmp[2];
-
-            if (!entities.containsKey(seed_entity)) {
-                entities.put(seed_entity, new TreeMap<>());
+            if (idx == 0) {
+                sb.append(line).append("\n");
+                idx++;
+                continue;
             }
 
-            double score = Double.parseDouble(df.format(Double.parseDouble(tmp[field_index])));
-            if (!entities.get(seed_entity).containsKey(score)) {
-                entities.get(seed_entity).put(score, new HashSet<>());
+            String[] data = line.split("\t");
+            if (!entities.contains(data[0])) {
+                continue;
             }
-            entities.get(seed_entity).get(score).add(candidate);
+
+            sb.append(line).append("\n");
+            if (sb.length() > 10000) {
+                FileUtils.saveText(sb.toString(), args[2], true);
+                sb.delete(0, sb.length());
+            }
         }
 
-        FileUtils.saveText("entity\tgt_total\tsim\tall_candidates\toverlap\tunaligned_entities\taligned_ratio\tunaligned_ratio\n", outfile);
-
-        for (String entity : entities.keySet()) {
-            Map<Double, Map.Entry<Integer, Integer>> cumm_entities = new TreeMap<>();
-            int gt_total = gt.containsKey(entity) ? gt.get(entity).size() : 0;
-            Set<String> gt_entities = gt.containsKey(entity) ? gt.get(entity) : new HashSet<>();
-            for (double score : entities.get(entity).keySet()) {
-                Set<String> cumm = new HashSet<>();
-                entities.get(entity).keySet().stream().filter(score_cmp -> score_cmp >= score).forEach(score_cmp -> cumm.addAll(entities.get(entity).get(score_cmp)));
-
-                int cumm_size = cumm.size();
-                cumm.retainAll(gt_entities);
-                int coverage = cumm.size();
-                cumm_entities.put(score, new AbstractMap.SimpleEntry<>(cumm_size, coverage));
-            }
-
-            //output the data
-            String coverage_stats = BaselineCandidatePairStrategies.writeCoverageStats(cumm_entities, gt_total, entity);
-            FileUtils.saveText(coverage_stats, outfile, true);
-        }
+        FileUtils.saveText(sb.toString(), args[2], true);
     }
 
-    public static Map<Integer, TDoubleArrayList> computeAvgSentenceW2V(String text, Map<String, TDoubleArrayList> w2v) {
-        String[] sentences = text.split("\\.\\s+");
-        Map<Integer, TDoubleArrayList> avg_w2v_s = new TreeMap<>();
 
-        for (int i = 0; i < sentences.length; i++) {
-            avg_w2v_s.put(i, DataUtils.computeAverageWordVector(sentences[i], w2v));
-        }
+    public static void parseTableFeatures(String[] args) throws IOException {
+        Set<String> files = new HashSet<>();
+        FileUtils.getFilesList(args[0], files);
 
-        return avg_w2v_s;
-    }
+        String outfile = args[1];
+        FileUtils.saveText("entity_a\tentity_b\ttbl_a\ttbl_b\n", outfile);
 
-    public static Map<Integer, Map.Entry<Integer, Double>> computeSentenceSim(Map<Integer, TDoubleArrayList> avg_w2vs_a, Map<Integer, TDoubleArrayList> avg_w2vs_b) {
-        Map<Integer, Map.Entry<Integer, Double>> sent_sim = new TreeMap<>();
-        for (int i : avg_w2vs_a.keySet()) {
-            TDoubleArrayList avg_a = avg_w2vs_a.get(i);
-            double max_sim = 0.0;
-            int max_idx = -1;
-            for (int j : avg_w2vs_b.keySet()) {
-                TDoubleArrayList avg_b = avg_w2vs_b.get(j);
-                double score = DataUtils.computeCosineSim(avg_a, avg_b);
+        for (String file : files) {
+            System.out.println("Processing file: " + file);
+            BufferedReader reader = FileUtils.getFileReader(file);
+            String line;
 
-                if (score > max_sim) {
-                    max_sim = score;
-                    max_idx = j;
+            StringBuffer sb = new StringBuffer();
+            while ((line = reader.readLine()) != null) {
+                String[] data = line.split("\t");
+
+                String ea = data[0].replace("entity_a:", "");
+                String eb = data[1].replace("entity_b:", "");
+
+
+                //from here we determine the section in which the table features are computed.
+                int start_index = 5;
+                if (line.contains("lca_cat")) {
+                    for (int i = 5; i < data.length; i++) {
+                        if (data[i].contains("lca_cat")) {
+                            continue;
+                        }
+                        start_index = i;
+                        break;
+                    }
+                }
+
+                String tbl_a = data[start_index++].replace("tbl_a:", "");
+                String tbl_b = data[start_index++].replace("tbl_b:", "");
+                //group the features for the different columns.
+                String col_features = "";
+                for (int i = start_index; i < data.length; i += 4) {
+                    String col_a = data[i].replace("col_a:", "");
+                    String col_b = data[i + 1].replace("col_b:", "");
+                    String title_sim = data[i + 2].replace("col_title_sim:", "");
+                    String abs_sim = data[i + 3].replace("col_abs_sim:", "");
+
+
+                }
+
+                sb.append(ea).append("\t").append(eb).append("\t");
+
+                if (sb.length() > 1000000) {
+                    FileUtils.saveText(sb.toString(), outfile, true);
+                    sb.delete(0, sb.length());
                 }
             }
-
-            sent_sim.put(i, new AbstractMap.SimpleEntry<>(max_idx, max_sim));
+            FileUtils.saveText(sb.toString(), outfile, true);
         }
-        return sent_sim;
     }
+
 
 }

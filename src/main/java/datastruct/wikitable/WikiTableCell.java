@@ -1,8 +1,11 @@
 package datastruct.wikitable;
 
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import utils.TableCellUtils;
 
 import java.io.Serializable;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +29,21 @@ public class WikiTableCell implements Serializable {
 
     public WikiTableCell(WikiColumnHeader col_header) {
         this.col_header = col_header;
+    }
+
+    public WikiTableCell(Element cell, WikiColumnHeader col_header) {
+        this.col_header = col_header;
+        this.value = cell.text();
+
+        if (cell.hasAttr("colspan")) {
+            col_span = Integer.parseInt(cell.attr("colspan"));
+        }
+        if (cell.hasAttr("rowspan")) {
+            row_span = Integer.parseInt(cell.attr("rowspan"));
+        }
+
+        //check if it contains any hyperlink
+        this.linkValues(cell);
     }
 
     /**
@@ -79,6 +97,27 @@ public class WikiTableCell implements Serializable {
             } else {
                 TableCellUtils.extractBracketedValue(value, values, pos);
             }
+        }
+    }
+
+    /**
+     * Extract the structured information from the HTML cell value.
+     *
+     * @param element
+     */
+    public void linkValues(Element element) {
+        if (values == null) {
+            values = new ArrayList<>();
+        }
+        Elements structured_href = element.select("a");
+        if (structured_href != null) {
+            for (Element struct_href : structured_href) {
+                String value = struct_href.text();
+                String ref = struct_href.attr("title");
+                values.add(new AbstractMap.SimpleEntry<>(ref, value));
+            }
+        } else {
+            values.add(new AbstractMap.SimpleEntry<>(element.text(), ""));
         }
     }
 }

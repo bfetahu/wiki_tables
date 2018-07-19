@@ -33,6 +33,12 @@ public class WikiColumnHeader implements Serializable {
         column_name = column_name.replaceAll("!", "").trim();
     }
 
+    public WikiColumnHeader(String column_name, int row_span, int col_span) {
+        this.column_name = column_name;
+        this.row_span = row_span;
+        this.col_span = col_span;
+    }
+
     public String toString() {
         return column_name;
     }

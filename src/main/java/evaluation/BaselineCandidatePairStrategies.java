@@ -92,6 +92,41 @@ public class BaselineCandidatePairStrategies {
             computeNode2VecCoverage(article_categories, category_path, out_dir, true);
         } else if (option.equals("n2vec_category")) {
             computeNode2VecCoverage(article_categories, category_path, out_dir, false);
+        } else if (option.equals("extract_pairs_cat_type")) {
+            extractBaselineCandidateCategoryPairs(article_categories, category_path, out_dir);
+        }
+    }
+
+    /**
+     * We extract the list of entities which are considered as pairs based on the baseline approach which checks the categories.
+     *
+     * @param article_categories
+     * @param category_path
+     * @param out_dir
+     */
+    public static void extractBaselineCandidateCategoryPairs(String article_categories, String category_path, String out_dir) throws IOException {
+        loadEntityCategoryDataStructures(article_categories, category_path);
+
+        String[] cat_types = {"same_level", "deepest", "direct_parents", "direct", "deepest_parents"};
+        for (String cat_type : cat_types) {
+            Map<String, Map.Entry<Integer, Set<String>>> entity_pairs = DataUtils.loadEntitiesByCategory(seed_entities, filter_entities, cat_to_map, entity_cats, cat_type);
+            String out_file = out_dir + "/coverage_taxonomy_cat_" + cat_type + ".tsv";
+            FileUtils.saveText("entity_a\tentity_b\n", out_file);
+            for (String entity : seed_entities) {
+                StringBuffer sb = new StringBuffer();
+                if (!entity_pairs.containsKey(entity)) {
+                    System.out.printf("Entity %s is missing.\n", entity);
+                    continue;
+                }
+                //we need to check here if there are any items from the ground-truth, otherwise
+                Map.Entry<Integer, Set<String>> pairs = entity_pairs.get(entity);
+
+                Set<String> entities = pairs.getValue();
+                entities.retainAll(filter_entities);
+
+                entities.forEach(e -> sb.append(entity).append("\t").append(e).append("\n"));
+                FileUtils.saveText(sb.toString(), out_file, true);
+            }
         }
     }
 
@@ -209,6 +244,7 @@ public class BaselineCandidatePairStrategies {
 
     /**
      * Write the coverage statistics in a standard format we are using.
+     *
      * @param cumm_entities
      * @param gt_total
      * @param entity
@@ -600,45 +636,9 @@ public class BaselineCandidatePairStrategies {
      */
     public static Map<String, Map.Entry<Integer, Set<String>>> loadEntitiesByCategory(String article_categories, String category_path, String cat_type) throws IOException {
         loadEntityCategoryDataStructures(article_categories, category_path);
-        Map<String, Map.Entry<Integer, Set<String>>> max_level_entities = new HashMap<>();
+        Map<String, Map.Entry<Integer, Set<String>>> max_level_entities = DataUtils.loadEntitiesByCategory(seed_entities, filter_entities, cat_to_map, entity_cats, cat_type);
 
         System.out.println("There are " + filter_entities.size() + " filter entities.");
-
-        for (String entity : seed_entities) {
-            //an entity is directly associated to multiple categories.
-            Set<String> entity_pairs = new HashSet<>();
-            if (!entity_cats.containsKey(entity)) {
-                System.out.printf("Entity %s is missing its categories %s.\n", entity, entity_cats.get(entity));
-                continue;
-            }
-            List<CategoryRepresentation> categories = entity_cats.get(entity).stream().filter(cat -> cat_to_map.containsKey(cat)).map(cat -> cat_to_map.get(cat)).collect(Collectors.toList());
-            if (categories == null || categories.isEmpty()) {
-                System.out.printf("Entity %s is missing its categories %s.\n", entity, entity_cats.get(entity));
-                continue;
-            }
-            //retrieve the categories that belong at the same depth in the category taxonomy.
-            int max_level = categories.stream().mapToInt(cat -> cat.level).max().getAsInt();
-            int max_sum = categories.stream().filter(cat -> cat.level == max_level).mapToInt(cat -> cat.entities.size()).sum();
-
-            System.out.printf("Entity %s has the maximal level %d and has %d categories with %d entities from the deepest categories.\n", entity, max_level, categories.size(), max_sum);
-
-            if (cat_type.equals("deepest")) {
-                //add all the entities that belong to the deepest category directly associated with our seed entity
-                categories.stream().filter(cat -> cat.level == max_level).forEach(cat -> entity_pairs.addAll(cat.entities));
-            } else if (cat_type.equals("same_level")) {
-                cat_to_map.keySet().stream().filter(x -> cat_to_map.get(x).level == max_level).forEach(x -> entity_pairs.addAll(cat_to_map.get(x).entities));
-            } else if (cat_type.equals("direct")) {
-                categories.forEach(cat -> entity_pairs.addAll(cat.entities));
-            } else if (cat_type.equals("direct_parents")) {
-                categories.forEach(cat -> cat.parents.values().forEach(parent -> entity_pairs.addAll(parent.entities)));
-                categories.forEach(cat -> entity_pairs.addAll(cat.entities));
-            } else if (cat_type.equals("deepest_parents")) {
-                categories.stream().filter(cat -> cat.level == max_level).forEach(cat -> entity_pairs.addAll(cat.entities));
-                categories.stream().filter(cat -> cat.level == max_level).forEach(cat -> cat.parents.values().forEach(parent -> entity_pairs.addAll(parent.entities)));
-            }
-            entity_pairs.retainAll(filter_entities);
-            max_level_entities.put(entity, new AbstractMap.SimpleEntry<>(max_level, entity_pairs));
-        }
         return max_level_entities;
     }
 
