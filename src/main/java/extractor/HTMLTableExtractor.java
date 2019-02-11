@@ -1,8 +1,8 @@
 package extractor;
 
-import datastruct.wikitable.WikiColumnHeader;
-import datastruct.wikitable.WikiTable;
-import datastruct.wikitable.WikiTableCell;
+import datastruct.table.WikiColumnHeader;
+import datastruct.table.WikiTable;
+import datastruct.table.WikiTableCell;
 import io.FileUtils;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.jsoup.Jsoup;
@@ -15,6 +15,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -51,7 +53,7 @@ public class HTMLTableExtractor {
         for (String entity : entities) {
             String entity_label = URLEncoder.encode(entity.replaceAll(" ", "_"));
             try {
-                //https://en.wikipedia.org/api/rest_v1/page/html/
+                //https://en.wikipedia.org/api/rest_v1/page/html/Itzehoe
                 String url = "https://en.wikipedia.org/api/rest_v1/page/html/" + entity_label;
                 String url_body = WebUtils.getURLContent(url).replaceAll("<!--(.*?)-->", "");
 
@@ -75,74 +77,130 @@ public class HTMLTableExtractor {
         BufferedReader reader = FileUtils.getFileReader(file);
         String line;
 
-        int table_id = 0;
-        int erroneous_total = 0;
+        List<String> table_data_lines = new ArrayList<>();
+        Queue<String> table_output_lines = new ConcurrentLinkedQueue<>();
+
+        AtomicInteger atm = new AtomicInteger(5000000);
+        AtomicInteger err_atm = new AtomicInteger();
         while ((line = reader.readLine()) != null) {
-            StringBuffer sb = new StringBuffer();
             String entity_text = line.contains("\t") ? line.substring(line.indexOf("\t")) : line;
-            Document doc = Jsoup.parse(entity_text);
 
-            Elements sections = doc.select("section");
-            String title = doc.title().replaceAll(" ", "_");
-            System.out.printf("Processing entity %s\n", title);
+            //add the lines
+            table_data_lines.add(entity_text);
 
-            sb.append("{\"entity\":\"").append(StringEscapeUtils.escapeJson(title)).append("\", \"sections\":[");
+            if (table_data_lines.size() > 1000) {
+                table_data_lines.parallelStream().forEach(table_html_text -> {
+                    String tbl_out = parseTableHTML(table_html_text, atm, err_atm);
+                    table_output_lines.add(tbl_out);
+                });
 
-            int section_idx = 0;
-            for (Element section : sections) {
-                String section_id = section.attr("data-mw-section-id");
-                String section_name = getSectionName(section, section_id);
-                Elements tables = section.getElementsByClass("wikitable");
+                //output the data
+                StringBuffer sb = new StringBuffer();
+                for (String tbl_html_out : table_output_lines) {
+                    sb.append(tbl_html_out);
+                    if (sb.length() > 100000) {
+                        FileUtils.saveText(sb.toString(), outfile, true);
+                        sb.delete(0, sb.length());
+                    }
+                }
 
-                if (section_name.isEmpty() || tables == null || tables.isEmpty()) {
+                FileUtils.saveText(sb.toString(), outfile, true);
+                //once done, flush out all the data
+                table_data_lines.clear();
+                table_output_lines.clear();
+            }
+        }
+        //parse the remainder
+        table_data_lines.parallelStream().forEach(table_html_text -> {
+            String tbl_out = parseTableHTML(table_html_text, atm, err_atm);
+            table_output_lines.add(tbl_out);
+        });
+
+        StringBuffer sb = new StringBuffer();
+        for (String tbl_html_out : table_output_lines) {
+            sb.append(tbl_html_out);
+
+            if (sb.length() > 100000) {
+                FileUtils.saveText(sb.toString(), outfile, true);
+                sb.delete(0, sb.length());
+            }
+        }
+        System.out.printf("Finished processing %d tables, and there %d were erroneous.\n", atm.get(), err_atm.get());
+    }
+
+
+    /**
+     * Parse a single article.
+     *
+     * @param entity_text
+     * @param atm
+     * @param atm_err
+     * @return
+     */
+    public static String parseTableHTML(String entity_text, AtomicInteger atm, AtomicInteger atm_err) {
+        StringBuffer sb = new StringBuffer();
+        Document doc = Jsoup.parse(entity_text);
+
+        Elements sections = doc.select("section");
+        String title = doc.title().replaceAll(" ", "_");
+        System.out.printf("Processing entity %s\n", title);
+
+        sb.append("{\"entity\":\"").append(StringEscapeUtils.escapeJson(title)).append("\", \"sections\":[");
+
+        int section_idx = 0;
+        for (Element section : sections) {
+            String section_id = section.attr("data-mw-section-id");
+            String section_name = getSectionName(section, section_id);
+            Elements tables = section.getElementsByClass("wikitable");
+
+            if (section_name.isEmpty() || tables == null || tables.isEmpty()) {
+                continue;
+            }
+
+            if (section_idx != 0) {
+                sb.append(", ");
+            }
+
+
+            sb.append("{\"section\":\"").append(StringEscapeUtils.escapeJson(section_name)).append("\", \"tables\":[");
+
+            int tbl_idx = 0;
+            for (Element table : tables) {
+                if (table.select("table").size() > 1) {
                     continue;
                 }
+                //since some tables may contain sub-tables, we first split those and then process them further.
+                try {
+                    Map<Integer, List<Element>> table_rows = getSubTables(table);
+                    for (int sub_tbl_id : table_rows.keySet()) {
+                        int table_id = atm.incrementAndGet();
+                        WikiTable tbl = parseTable(table_rows.get(sub_tbl_id));
+                        tbl.section = section_name;
+                        tbl.markup = table.toString();
+                        tbl.table_caption = table.select("caption").text();
+                        tbl.table_id = table_id;
+                        table_id++;
 
-                if (section_idx != 0) {
-                    sb.append(", ");
-                }
+                        String table_json_output = TablePrinter.printTableToJSON(tbl);
 
-
-                sb.append("{\"section\":\"").append(StringEscapeUtils.escapeJson(section_name)).
-                        append("\", \"text\":\"").append(StringEscapeUtils.escapeJson(section.toString())).
-                        append("\", \"tables\":[");
-
-                int tbl_idx = 0;
-                for (Element table : tables) {
-                    if (table.select("table").size() > 1) {
-                        continue;
-                    }
-                    //since some tables may contain sub-tables, we first split those and then process them further.
-                    try {
-                        Map<Integer, List<Element>> table_rows = getSubTables(table);
-                        for (int sub_tbl_id : table_rows.keySet()) {
-                            if (tbl_idx != 0) {
-                                sb.append(", ");
-                            }
-
-                            WikiTable tbl = parseTable(table_rows.get(sub_tbl_id));
-                            tbl.section = section_name;
-                            tbl.markup = table.toString();
-                            tbl.table_caption = table.select("caption").text();
-                            tbl.table_id = table_id;
-                            table_id++;
-
-                            String table_json_output = TablePrinter.printTableToJSON(tbl);
-                            sb.append(table_json_output);
-                            tbl_idx++;
-
+                        if (tbl_idx != 0) {
+                            sb.append(", ");
                         }
-                    } catch (Exception e) {
-                        erroneous_total++;
+
+                        sb.append(table_json_output);
+                        tbl_idx++;
+
                     }
+                } catch (Exception e) {
+                    FileUtils.saveText(table.toString().replaceAll("\n", "\\n") + "\n", "error.log", true);
+                    atm_err.incrementAndGet();
                 }
-                sb.append("]}");
-                section_idx++;
             }
-            sb.append("]}\n");
-            FileUtils.saveText(sb.toString(), outfile, true);
+            sb.append("]}");
+            section_idx++;
         }
-        System.out.printf("Finished processing %d tables, and there %d were erroneous.\n", table_id, erroneous_total);
+        sb.append("]}\n");
+        return sb.toString();
     }
 
     /**

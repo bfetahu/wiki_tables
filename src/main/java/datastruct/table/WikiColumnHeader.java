@@ -1,6 +1,4 @@
-package datastruct.wikitable;
-
-import utils.TableCellUtils;
+package datastruct.table;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -23,15 +21,6 @@ public class WikiColumnHeader implements Serializable {
     //store the distribution of the data for this column
     public Map<Object, Integer> value_dist;
 
-    public WikiColumnHeader(String column_header_markup) {
-        //check if it first contains a colspan
-        int[] span = TableCellUtils.getRowColSpan(column_header_markup);
-        row_span = span[0];
-        col_span = span[1];
-        int sub_index = column_header_markup.contains("|") ? column_header_markup.indexOf("|") + 1 : 0;
-        column_name = column_header_markup.substring(sub_index).trim();
-        column_name = column_name.replaceAll("!", "").trim();
-    }
 
     public WikiColumnHeader(String column_name, int row_span, int col_span) {
         this.column_name = column_name;

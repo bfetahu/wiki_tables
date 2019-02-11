@@ -1,8 +1,7 @@
-package datastruct.wikitable;
+package datastruct.table;
 
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import utils.TableCellUtils;
 
 import java.io.Serializable;
 import java.util.AbstractMap;
@@ -46,25 +45,6 @@ public class WikiTableCell implements Serializable {
         this.linkValues(cell);
     }
 
-    /**
-     * Parse the value for a table cell. Check first if this value spans across rows and columns.
-     *
-     * @param value
-     */
-    public void parseValue(String value) {
-        if (value.startsWith("|")) {
-            value = value.replaceAll("^(\\s?\\|)+", "");
-        }
-        int[] span = TableCellUtils.getRowColSpan(value);
-        value = TableCellUtils.removeFormattingClauses(value);
-        row_span = span[0];
-        col_span = span[1];
-
-        value = value.replaceAll("^!\\|?", "");
-        value = value.replaceAll("^\\|+", "");
-        value = value.replaceAll("'{2,}", "");
-        this.value = value.trim().intern();
-    }
 
     public String toString() {
         StringBuffer sb = new StringBuffer();
@@ -74,30 +54,6 @@ public class WikiTableCell implements Serializable {
             values.forEach(s -> sb.append(s).append(";"));
         }
         return sb.toString();
-    }
-
-    /**
-     * For a given cell value, we parse the values by removing the anchor text and replacing it with the links to the entity pages.
-     * [[Confederation of African Athletics|Africa]] {{([[List of African records in athletics|records]])}}
-     */
-    public void linkValues() {
-        if (values != null && !values.isEmpty()) {
-            return;
-        }
-        values = new ArrayList<>();
-        //in this case we look for markup which contains links to other Wikipedia articles.
-        int pos = 0;
-        if (value.contains("[[") || value.contains("{{")) {
-            pos = TableCellUtils.extractAnchorData(value, values, pos);
-        }
-        if (value.contains("{{")) {
-            if (value.contains("[[")) {
-                String value_tmp = value.replaceAll("\\{+|\\}+", "");
-                TableCellUtils.extractAnchorData(value_tmp, values, pos);
-            } else {
-                TableCellUtils.extractBracketedValue(value, values, pos);
-            }
-        }
     }
 
     /**
