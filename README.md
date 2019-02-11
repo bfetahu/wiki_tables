@@ -20,5 +20,6 @@ java -cp *COMPILED_PROJECT*.jar HTMLTableExtractor -option parse_tables -in INPU
 - `INPUT_FILE: should point to the HTML content of the Wikipedia articles. The HTML content is JSON escaped, such that each line consists of an article. You can use the previous operation (*HTML Article Extraction*) to extract the HTML content.`
 - `OUTPUT_FILE: the file where the extracted tables will be outputed in JSON format.`
 
+## Table Alignment
 
 We have uploaded a sample of the [ground-truth data](https://github.com/bfetahu/wiki_tables/blob/master/table_pair_labels_100_sample.tsv) and extracted [table data](https://github.com/bfetahu/wiki_tables/blob/table_data.json.gz). We will release the full dataset upon acceptance of our paper. 
