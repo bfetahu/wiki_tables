@@ -24,17 +24,26 @@ import java.util.stream.Collectors;
  */
 public class HTMLTableExtractor {
     public static void main(String[] args) throws IOException {
-        String option = args[0];
-        String seed_path = args[1];
-        String table_data = args[2];
+        String option = "", seed_path = "", out = "", in_file = "";
 
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("-option")) {
+                option = args[++i];
+            } else if (args[i].equals("-seed")) {
+                seed_path = args[++i];
+            } else if (args[i].equals("-out")) {
+                out = args[++i];
+            } else if (args[i].equals("-in")) {
+                in_file = args[++i];
+            }
+        }
         if (option.equals("crawl_table_articles")) {
             Set<String> tables = FileUtils.readIntoSet(seed_path, "\n", false);
 
-            extractHTMLWikiPageContent(tables, table_data);
+            extractHTMLWikiPageContent(tables, out);
         } else if (option.equals("parse_tables")) {
             String out_dir = args[3];
-            parseHTMLTables(table_data, out_dir);
+            parseHTMLTables(in_file, out_dir);
         }
     }
 
