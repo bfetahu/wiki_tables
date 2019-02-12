@@ -23,3 +23,18 @@ java -cp *COMPILED_PROJECT*.jar HTMLTableExtractor -option parse_tables -in INPU
 ## Table Alignment
 
 We have uploaded a sample of the [ground-truth data](https://github.com/bfetahu/wiki_tables/blob/master/table_pair_labels_100_sample.tsv) and extracted [table data](https://github.com/bfetahu/wiki_tables/blob/table_data.json.gz). We will release the full dataset upon acceptance of our paper. 
+
+
+
+
+## Citation
+Please cite the following work, when using this dataset or approach.
+```
+@article{fetahu2019tablenet,
+  title={TableNet: An Approach for Determining Fine-grained Relations for Wikipedia Tables},
+  author={Fetahu, Besnik and Anand, Avishek and Koutraki, Maria},
+  booktitle = {Proceedings of the 2019 World Wide Web Conference on World Wide Web,
+               {WWW} 2019, San Francisco, USA, May 13-17},
+  year={2019}
+}
+```
