@@ -12,9 +12,8 @@ The table data consists of more than 3M tables. The data format is in JSON, and 
 "header":[
   {"level":HEADER_LEVEL, "columns":[ 
     {"name": "COL_NAME", "col_span": COL_SPAN, "row_span": ROW_SPAN, 
-    "value_dist":[
-      {"value":"VAL","count":COUNT}
-     ]}]}
+    "value_dist":[{"value":"VAL","count":COUNT}]}
+ ]}
 ], 
 "rows":[ 
   {"row_index":ROW_INDEX, "values":[
