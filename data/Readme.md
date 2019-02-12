@@ -38,3 +38,7 @@ The pairs correspond to a manually filtered set of article pairs, that is seed a
 |1979–80 Liga Alef | 2013 UEFA European Under-21 Championship | North Division | Seeding | 8765 | 2904 | noalignment|
 |2012 Catalunya GP2 and GP3 Series rounds | 1926 Italian Grand Prix | Qualifying | Classification | 5503 | 4417| equivalent|
 |Air Force Falcons football statistical leaders | Air Force Falcons football statistical leaders | Passing yards | Passing yards | 5018953| 5018952 |subpartof| 
+
+`The evaluation file consist of 17k pairs and it can be downloaded from the following` [url](http://l3s.de/~fetahu/wiki_tables/table_pair_evaluation_eq_sub_irrel_labels.tsv).
+
+
