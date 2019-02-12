@@ -33,8 +33,7 @@ Please cite the following work, when using this dataset or approach.
 @article{fetahu2019tablenet,
   title={TableNet: An Approach for Determining Fine-grained Relations for Wikipedia Tables},
   author={Fetahu, Besnik and Anand, Avishek and Koutraki, Maria},
-  booktitle = {Proceedings of the 2019 World Wide Web Conference on World Wide Web,
-               {WWW} 2019, San Francisco, USA, May 13-17},
+  booktitle={Proceedings of the 2019 World Wide Web Conference on World Wide Web, {WWW} 2019, San Francisco, USA, May 13-17},
   year={2019}
 }
 ```
