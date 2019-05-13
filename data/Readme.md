@@ -24,7 +24,7 @@ The table data consists of more than 3M tables. The data format is in JSON, and 
 }
 ```
 
-`All the extracted tables can be downloaded from the following` [url](http://l3s.de/~fetahu/wiki_tables/structured_html_table_data.json.gz).
+`All the extracted tables can be downloaded from the following` [url](http://l3s.de/~fetahu/wiki_tables/data/table_data/html_data/structured_html_table_data.json.gz).
 
 
 ### Evaluation Ground-Truth for Table Relations
@@ -39,6 +39,6 @@ The pairs correspond to a manually filtered set of article pairs, that is seed a
 |2012 Catalunya GP2 and GP3 Series rounds | 1926 Italian Grand Prix | Qualifying | Classification | 5503 | 4417| equivalent|
 |Air Force Falcons football statistical leaders | Air Force Falcons football statistical leaders | Passing yards | Passing yards | 5018953| 5018952 |subpartof| 
 
-`The evaluation file consist of 17k pairs and it can be downloaded from the following` [url](http://l3s.de/~fetahu/wiki_tables/table_pair_evaluation_eq_sub_irrel_labels.tsv).
+`The evaluation file consist of 17k pairs and it can be downloaded from the following` [url](http://l3s.de/~fetahu/wiki_tables/data/gt_data/table_pair_evaluation_eq_sub_irrel_labels.tsv).
 
 
