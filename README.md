@@ -22,7 +22,7 @@ java -cp *COMPILED_PROJECT*.jar HTMLTableExtractor -option parse_tables -in INPU
 
 ## Table Alignment
 
-We have uploaded all the datasets for the TableNet evaluation as well as the extracted tables at [table data](https://github.com/bfetahu/wiki_tables/tree/master/data/). The TableNet code for alignment of tables can be found [here](https://github.com/bfetahu/wiki_tables/tree/master/tablenet_code/).
+We have uploaded all the datasets for the TableNet evaluation as well as the extracted tables at [table data](https://github.com/bfetahu/wiki_tables/tree/master/data/). The TableNet code for alignment of tables can be found [here](https://github.com/bfetahu/wiki_tables/tree/master/tablnet_code/).
 
 
 
